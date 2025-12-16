@@ -1662,7 +1662,7 @@ static asio::awaitable<void> on_player_died(shared_ptr<Client> c, SubcommandMess
         auto deathmessage = char_name + " has died.";
         send_text_or_scrolling_message(s, deathmessage, deathmessage);
         send_message_box(c, "$C6You have died.");
-        c->save_and_unload_character();
+        c->unload_character(false);
         std::filesystem::remove(charfilename);
         if (std::filesystem::is_regular_file(bankfilename))
         {
