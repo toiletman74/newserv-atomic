@@ -1646,6 +1646,32 @@ static asio::awaitable<void> on_player_died(shared_ptr<Client> c, SubcommandMess
   } catch (const out_of_range&) {
   }
 
+  try {
+    if (c->character_file()->inventory.find_item_by_primary_identifier(0x03090000) > 0)
+    {
+      //scape doll was found
+    }
+  } catch (const out_of_range&) {
+    std::string charfilename = c->character_filename();
+    std::string bankfilename = c->bank_filename();
+    if (std::filesystem::is_regular_file(charfilename))
+    {
+        //deleted character successfully
+        auto char_name = c->character_file()->disp.name.decode(c->language());
+        auto s = c->require_server_state();
+        auto deathmessage = char_name + " has died.";
+        send_text_or_scrolling_message(s, deathmessage, deathmessage);
+        send_message_box(c, "$C6You have died.");
+        c->save_and_unload_character();
+        std::filesystem::remove(charfilename);
+        if (std::filesystem::is_regular_file(bankfilename))
+        {
+          std::filesystem::remove(bankfilename);
+        }
+        c->channel->disconnect();
+    }
+  }
+
   forward_subcommand(c, msg);
 }
 
