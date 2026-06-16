@@ -1654,13 +1654,13 @@ static void on_player_died(std::shared_ptr<Client> c, SubcommandMessage& msg) {
     {
       //scape doll was found
     }
-  } catch (const out_of_range&) {
+  } catch (const std::out_of_range&) {
     std::string charfilename = c->character_filename();
     std::string bankfilename = c->bank_filename();
     if (std::filesystem::is_regular_file(charfilename))
     {
         //deleted character successfully
-        auto char_name = c->character_file()->disp.name.decode(c->language());
+        auto char_name = c->character_file()->disp.visual.name.decode(c->language());
         auto s = c->require_server_state();
         auto deathmessage = char_name + " has died.";
         send_text_or_scrolling_message(s, deathmessage, deathmessage);
