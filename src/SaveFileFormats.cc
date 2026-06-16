@@ -7,13 +7,11 @@
 #include "LevelTable.hh"
 #include "PSOProtocol.hh"
 
-using namespace std;
-
 struct DefaultSymbolChatEntry {
-  array<const char*, 8> language_to_name;
+  std::array<const char*, 8> language_to_name;
   uint32_t spec;
-  array<uint16_t, 4> corner_objects;
-  array<SymbolChatFacePart, 12> face_parts;
+  std::array<uint16_t, 4> corner_objects;
+  std::array<SymbolChatFacePart, 12> face_parts;
 
   SaveFileSymbolChatEntryBB to_entry(Language language) const {
     SaveFileSymbolChatEntryBB ret;
@@ -30,7 +28,7 @@ struct DefaultSymbolChatEntry {
   }
 };
 
-static const array<DefaultSymbolChatEntry, 6> DEFAULT_SYMBOL_CHATS = {
+static const std::array<DefaultSymbolChatEntry, 6> DEFAULT_SYMBOL_CHATS = {
     DefaultSymbolChatEntry{{"\tJ\xE3\x81\x93\xE3\x82\x93\xE3\x81\xAB\xE3\x81\xA1\xE3\x81\xAF", "\tEHello", "\tEHallo", "\tESalut", "\tEHola", "\tB\xE4\xBD\xA0\xE5\xA5\xBD", "\tT\xE4\xBD\xA0\xE5\xA5\xBD", "\tK\xEC\x95\x88\xEB\x85\x95"}, 0x28, {0xFFFF, 0x000D, 0xFFFF, 0xFFFF}, {SymbolChatFacePart{0x05, 0x18, 0x1D, 0x00}, {0x05, 0x28, 0x1D, 0x01}, {0x36, 0x20, 0x2A, 0x00}, {0x3C, 0x00, 0x32, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}}},
     DefaultSymbolChatEntry{{"\tJ\xE3\x81\x95\xE3\x82\x88\xE3\x81\x86\xE3\x81\xAA\xE3\x82\x89", "\tEGood-bye", "\tETschus", "\tEAu revoir", "\tEAdios", "\tB\xE5\x86\x8D\xE8\xA7\x81", "\tT\xE5\x86\x8D\xE8\xA6\x8B", "\tK\xEC\x9E\x98\xEA\xB0\x80"}, 0x74, {0x0476, 0x000C, 0xFFFF, 0xFFFF}, {SymbolChatFacePart{0x06, 0x15, 0x14, 0x00}, {0x06, 0x2B, 0x14, 0x01}, {0x05, 0x18, 0x1F, 0x00}, {0x05, 0x28, 0x1F, 0x01}, {0x36, 0x20, 0x2A, 0x00}, {0x3C, 0x00, 0x32, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}}},
     DefaultSymbolChatEntry{{"\tJ\xE3\x81\xB0\xE3\x82\x93\xE3\x81\x96\xE3\x83\xBC\xE3\x81\x84", "\tEHurrah!", "\tEHurra!", "\tEHourra !", "\tEHurra", "\tB\xE4\xB8\x87\xE5\xB2\x81", "\tT\xE8\x90\xAC\xE6\xAD\xB2", "\tK\xEB\xA7\x8C\xEC\x84\xB8"}, 0x28, {0x0362, 0x0362, 0xFFFF, 0xFFFF}, {SymbolChatFacePart{0x09, 0x16, 0x1B, 0x00}, {0x09, 0x2B, 0x1B, 0x01}, {0x37, 0x20, 0x2C, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}}},
@@ -39,11 +37,11 @@ static const array<DefaultSymbolChatEntry, 6> DEFAULT_SYMBOL_CHATS = {
     DefaultSymbolChatEntry{{"\tJ\xE3\x81\x9F\xE3\x81\x99\xE3\x81\x91\xE3\x81\xA6\xEF\xBC\x81", "\tEHelp me!", "\tEHilf mir!", "\tEAide-moi !", "\tEAyuda", "\tB\xE6\x95\x91\xE5\x91\xBD\xE5\x95\x8A\xEF\xBC\x81", "\tT\xE6\x95\x91\xE5\x91\xBD\xE5\x95\x8A\xEF\xBC\x81", "\tK\xEB\x8F\x84\xEC\x99\x80\xEC\xA4\x98\xEF\xBC\x81"}, 0xEC, {0x065E, 0x0138, 0xFFFF, 0xFFFF}, {SymbolChatFacePart{0x02, 0x17, 0x1B, 0x01}, {0x02, 0x2A, 0x1B, 0x00}, {0x31, 0x20, 0x2C, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x00}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}, {0xFF, 0x00, 0x00, 0x02}}},
 };
 
-static const array<uint16_t, 20> DEFAULT_TECH_MENU_CONFIG = {
+static const std::array<uint16_t, 20> DEFAULT_TECH_MENU_CONFIG = {
     0x0000, 0x0006, 0x0003, 0x0001, 0x0007, 0x0004, 0x0002, 0x0008, 0x0005, 0x0009,
     0x0012, 0x000F, 0x0010, 0x0011, 0x000D, 0x000A, 0x000B, 0x000C, 0x000E, 0x0000};
 
-static const array<uint8_t, 0x016C> DEFAULT_KEY_CONFIG = {
+static const std::array<uint8_t, 0x016C> DEFAULT_KEY_CONFIG = {
     0x00, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -68,15 +66,14 @@ static const array<uint8_t, 0x016C> DEFAULT_KEY_CONFIG = {
     0x00, 0x00, 0x00, 0x00, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x33, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
 
-static const array<uint8_t, 0x0038> DEFAULT_JOYSTICK_CONFIG = {
+static const std::array<uint8_t, 0x0038> DEFAULT_JOYSTICK_CONFIG = {
     0x00, 0x01, 0xFF, 0xFF, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00,
     0x00, 0x00, 0x08, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
     0x08, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00,
     0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
 
-// Originally there was going to be a language-based header for .nsc files, but
-// then I decided against it. This string was already in use for that parser,
-// so I didn't bother changing it.
+// Originally there was going to be a language-based header for .nsc files, but then I decided against it. This string
+// was already in use for that parser, so I didn't bother changing it.
 const char* LegacySavedAccountDataBB::SIGNATURE = "newserv account file format; 7 sections present; sequential;";
 
 ShuffleTables::ShuffleTables(PSOV2Encryption& crypt) {
@@ -89,7 +86,7 @@ ShuffleTables::ShuffleTables(PSOV2Encryption& crypt) {
   while (r28 >= 0) {
     uint32_t r3 = this->pseudorand(crypt, r28 + 1);
     if (r3 >= 0x100) {
-      throw logic_error("bad r3");
+      throw std::logic_error("bad r3");
     }
     uint8_t t = this->forward_table[r3];
     this->forward_table[r3] = *r31;
@@ -145,7 +142,7 @@ bool PSOVMSFileHeader::checksum_correct() const {
 
 void PSOVMSFileHeader::check() const {
   if (!this->checksum_correct()) {
-    throw runtime_error("VMS file unencrypted header checksum is incorrect");
+    throw std::runtime_error("VMS file unencrypted header checksum is incorrect");
   }
 }
 
@@ -166,19 +163,19 @@ bool PSOGCIFileHeader::checksum_correct() const {
 
 void PSOGCIFileHeader::check() const {
   if (!this->checksum_correct()) {
-    throw runtime_error("GCI file unencrypted header checksum is incorrect");
+    throw std::runtime_error("GCI file unencrypted header checksum is incorrect");
   }
   if (this->developer_id[0] != '8' || this->developer_id[1] != 'P') {
-    throw runtime_error("GCI file is not for a Sega game");
+    throw std::runtime_error("GCI file is not for a Sega game");
   }
   if ((this->game_id[0] != 'G') && (this->game_id[0] != 'D')) {
-    throw runtime_error("GCI file is not for a GameCube game");
+    throw std::runtime_error("GCI file is not for a GameCube game");
   }
   if (this->game_id[1] != 'P') {
-    throw runtime_error("GCI file is not for Phantasy Star Online");
+    throw std::runtime_error("GCI file is not for Phantasy Star Online");
   }
   if ((this->game_id[2] != 'S') && (this->game_id[2] != 'O')) {
-    throw runtime_error("GCI file is not for Phantasy Star Online");
+    throw std::runtime_error("GCI file is not for Phantasy Star Online");
   }
 }
 
@@ -195,14 +192,8 @@ bool PSOGCIFileHeader::is_nte() const {
 }
 
 uint32_t compute_psogc_timestamp(
-    uint16_t year,
-    uint8_t month,
-    uint8_t day,
-    uint8_t hour,
-    uint8_t minute,
-    uint8_t second) {
-  static uint16_t month_start_day[12] = {
-      0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second) {
+  static uint16_t month_start_day[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
 
   uint32_t year_start_day = ((year - 1998) >> 2) + (year - 2000) * 365;
   if ((((year - 1998) & 3) == 0) && (month < 3)) {
@@ -222,10 +213,10 @@ phosg::ImageRGB888 PSOGCSnapshotFile::decode_image() const {
   size_t width = this->width ? this->width.load() : 256;
   size_t height = this->height ? this->height.load() : 192;
   if (width != 256) {
-    throw runtime_error("width is incorrect");
+    throw std::runtime_error("width is incorrect");
   }
   if (height != 192) {
-    throw runtime_error("height is incorrect");
+    throw std::runtime_error("height is incorrect");
   }
 
   // 4x4 blocks of pixels
@@ -314,7 +305,7 @@ bool PSOXBFileHeader::checksum_correct() const {
 
 void PSOXBFileHeader::check() const {
   if (!this->checksum_correct()) {
-    throw runtime_error("Xbox file intermediate header checksum is incorrect");
+    throw std::runtime_error("Xbox file intermediate header checksum is incorrect");
   }
 }
 
@@ -329,24 +320,24 @@ uint32_t PSOBBGuildCardFile::checksum() const {
 
 void PSOBBGuildCardFile::delete_duplicates() {
   {
-    unordered_set<uint32_t> seen;
+    std::unordered_set<uint32_t> seen;
     size_t read_index = 0, write_index = 0;
-    for (read_index = 0; read_index < this->blocked.size(); read_index++) {
-      const auto& read_blocked = this->blocked[read_index];
-      if (seen.emplace(read_blocked.guild_card_number).second) {
+    for (read_index = 0; read_index < this->blocked_senders.size(); read_index++) {
+      const auto& read_blocked_senders = this->blocked_senders[read_index];
+      if (seen.emplace(read_blocked_senders.guild_card_number).second) {
         if (write_index != read_index) {
-          this->blocked[write_index] = read_blocked;
+          this->blocked_senders[write_index] = read_blocked_senders;
         }
         write_index++;
       }
     }
-    for (; write_index < this->blocked.size(); write_index++) {
-      this->blocked[write_index].clear();
+    for (; write_index < this->blocked_senders.size(); write_index++) {
+      this->blocked_senders[write_index].clear();
     }
   }
 
   {
-    unordered_set<uint32_t> seen;
+    std::unordered_set<uint32_t> seen;
     size_t read_index = 0, write_index = 0;
     for (read_index = 0; read_index < this->entries.size(); read_index++) {
       const auto& read_entry = this->entries[read_index];
@@ -374,23 +365,21 @@ PSOBBBaseSystemFile::PSOBBBaseSystemFile() {
   }
 }
 
-PlayerDispDataBBPreview PSOBBCharacterFile::to_preview() const {
-  PlayerDispDataBBPreview pre;
+PlayerDispDataV4Preview PSOBBCharacterFile::to_preview() const {
+  PlayerDispDataV4Preview pre;
   pre.level = this->disp.stats.level;
-  pre.experience = this->disp.stats.experience;
+  pre.exp = this->disp.stats.exp;
   pre.visual = this->disp.visual;
-  pre.name = this->disp.name;
   pre.play_time_seconds = this->play_time_seconds;
   return pre;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
     uint32_t guild_card_number,
     Language language,
-    const PlayerVisualConfig& visual,
-    const std::string& name,
-    shared_ptr<const LevelTable> level_table) {
-  static const array<array<PlayerInventoryItem, 5>, 12> initial_inventory{{
+    const PlayerVisualConfigV4& visual,
+    std::shared_ptr<const LevelTable> level_table) {
+  static const std::array<std::array<PlayerInventoryItem, 5>, 12> initial_inventory{{
       {
           PlayerInventoryItem(ItemData(0x0001000000000000, 0x0000000000000000), true),
           PlayerInventoryItem(ItemData(0x0101000000000000, 0x0000000000000000), true),
@@ -477,7 +466,7 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
       },
   }};
 
-  static const array<uint8_t, 0xE8> config_hunter_ranger{
+  static const std::array<uint8_t, 0xE8> config_hunter_ranger{
       {0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00,
           0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -493,7 +482,7 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
-  static const array<uint8_t, 0xE8> config_force{
+  static const std::array<uint8_t, 0xE8> config_force{
       {0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00,
           0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -510,18 +499,17 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 
-  auto ret = make_shared<PSOBBCharacterFile>();
+  auto ret = std::make_shared<PSOBBCharacterFile>();
   ret->disp.visual = visual;
-  ret->disp.name.encode(name, language);
 
-  const auto& initial_items = initial_inventory.at(visual.char_class);
+  const auto& initial_items = initial_inventory.at(visual.sh.char_class);
   ret->inventory.num_items = initial_items.size();
   for (size_t z = 0; z < initial_items.size(); z++) {
     ret->inventory.items[z] = initial_items[z];
   }
 
   // Set mag color based on initial costume
-  static const array<array<uint8_t, 25>, 12> mag_colors = {{
+  static const std::array<std::array<uint8_t, 25>, 12> mag_colors = {{
       {0x09, 0x01, 0x02, 0x11, 0x0A, 0x05, 0x06, 0x0B, 0x05, 0x00, 0x07, 0x0B, 0x0C, 0x04, 0x05, 0x06, 0x0E, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
       {0x00, 0x01, 0x02, 0x11, 0x04, 0x05, 0x06, 0x08, 0x11, 0x0D, 0x01, 0x02, 0x0C, 0x04, 0x05, 0x06, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
       {0x00, 0x01, 0x02, 0x11, 0x04, 0x0E, 0x06, 0x01, 0x0E, 0x09, 0x07, 0x02, 0x11, 0x04, 0x05, 0x06, 0x04, 0x11, 0x0D, 0x01, 0x0B, 0x11, 0x0D, 0x05, 0x06},
@@ -535,36 +523,36 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
       {0x00, 0x01, 0x0B, 0x0C, 0x04, 0x05, 0x06, 0x08, 0x0A, 0x0D, 0x07, 0x02, 0x11, 0x0A, 0x05, 0x06, 0x01, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
       {0x00, 0x07, 0x02, 0x11, 0x04, 0x05, 0x06, 0x09, 0x0C, 0x00, 0x01, 0x02, 0x11, 0x0D, 0x05, 0x10, 0x01, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
   }};
-  uint8_t char_class = (visual.char_class > 0x0B) ? 0 : visual.char_class;
+  uint8_t char_class = (visual.sh.char_class > 0x0B) ? 0 : visual.sh.char_class;
   uint8_t mag_color_index;
   if (char_class == 2 || char_class == 4 || char_class == 5 || char_class == 9) {
-    mag_color_index = (visual.skin >= 25) ? 0 : visual.skin.load();
+    mag_color_index = (visual.sh.skin >= 25) ? 0 : visual.sh.skin.load();
   } else {
-    mag_color_index = (visual.costume >= 18) ? 0 : visual.costume.load();
+    mag_color_index = (visual.sh.costume >= 18) ? 0 : visual.sh.costume.load();
   }
   ret->inventory.items[2].data.data2[3] = mag_colors.at(char_class).at(mag_color_index);
 
   ret->inventory.items[13].extension_data2 = 1;
 
-  const auto& config = (ret->disp.visual.class_flags & 0x80) ? config_force : config_hunter_ranger;
+  const auto& config = (ret->disp.visual.sh.class_flags & 0x80) ? config_force : config_hunter_ranger;
   for (size_t z = 0; z < config.size(); z++) {
     ret->disp.config[z] = config[z];
   }
 
   if (level_table) {
-    level_table->reset_to_base(ret->disp.stats, ret->disp.visual.char_class);
+    level_table->reset_to_base(ret->disp.stats, ret->disp.visual.sh.char_class);
   }
   ret->disp.technique_levels_v1.clear(0xFF);
-  if (ret->disp.visual.class_flags & 0x80) {
+  if (ret->disp.visual.sh.class_flags & 0x80) {
     ret->disp.technique_levels_v1[0] = 0x00; // Forces start with Foie Lv.1
   }
   ret->inventory.language = language;
   ret->guild_card.guild_card_number = guild_card_number;
-  ret->guild_card.name = ret->disp.name;
+  ret->guild_card.name = ret->disp.visual.name;
   ret->guild_card.present = 1;
   ret->guild_card.language = ret->inventory.language;
-  ret->guild_card.section_id = ret->disp.visual.section_id;
-  ret->guild_card.char_class = ret->disp.visual.char_class;
+  ret->guild_card.section_id = ret->disp.visual.sh.section_id;
+  ret->guild_card.char_class = ret->disp.visual.sh.char_class;
   for (size_t z = 0; z < DEFAULT_SYMBOL_CHATS.size(); z++) {
     ret->symbol_chats[z] = DEFAULT_SYMBOL_CHATS[z].to_entry(language);
   }
@@ -574,26 +562,12 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_config(
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_preview(
-    uint32_t guild_card_number,
-    Language language,
-    const PlayerDispDataBBPreview& preview,
-    shared_ptr<const LevelTable> level_table) {
-  return PSOBBCharacterFile::create_from_config(
-      guild_card_number, language, preview.visual, preview.name.decode(language), level_table);
-}
-
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCNTECharacterFile::Character& src) {
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCNTECharacterFile::Character& src) {
   auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      Language::JAPANESE,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+      src.guild_card.guild_card_number, Language::JAPANESE, src.disp.visual);
   ret->inventory = src.inventory;
   ret->inventory.decode_from_client(Version::DC_V1);
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  ret->disp = src.disp.to_v4(Language::JAPANESE, Language::JAPANESE);
   ret->validation_flags = 0;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -616,17 +590,12 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCN
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODC112000CharacterFile::Character& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODC112000CharacterFile::Character& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
   ret->inventory.decode_from_client(Version::DC_V1);
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = 0;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -659,17 +628,12 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODC1
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCV1CharacterFile::Character& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCV1CharacterFile::Character& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
   ret->inventory.decode_from_client(Version::DC_V1);
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = src.validation_flags;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -692,17 +656,12 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCV
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCV2CharacterFile::Character& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCV2CharacterFile::Character& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
   ret->inventory.decode_from_client(Version::DC_V2);
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = src.validation_flags;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -732,20 +691,14 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSODCV
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCNTECharacterFileCharacter& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCNTECharacterFileCharacter& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
-  // Note: We intentionally do not call ret->inventory.decode_from_client here.
-  // This is because the GC client byteswaps data2 in each item before sending
-  // it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does
-  // not do this, so the data2 fields are already in the correct order here.
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  // Note: We intentionally do not call ret->inventory.decode_from_client here. This is because the GC client byteswaps
+  // data2 in each item before sending it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does not
+  // do this, so the data2 fields are already in the correct order here.
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = src.validation_flags;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -773,20 +726,14 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCN
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCCharacterFile::Character& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCCharacterFile::Character& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
-  // Note: We intentionally do not call ret->inventory.decode_from_client here.
-  // This is because the GC client byteswaps data2 in each item before sending
-  // it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does
-  // not do this, so the data2 fields are already in the correct order here.
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  // Note: We intentionally do not call ret->inventory.decode_from_client here. This is because the GC client byteswaps
+  // data2 in each item before sending it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does not
+  // do this, so the data2 fields are already in the correct order here.
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = src.validation_flags;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -824,16 +771,11 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCC
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCEp3CharacterFile::Character& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCEp3CharacterFile::Character& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = src.validation_flags;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -872,17 +814,12 @@ shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOGCE
   return ret;
 }
 
-shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOXBCharacterFile::Character& src) {
-  auto ret = PSOBBCharacterFile::create_from_config(
-      src.guild_card.guild_card_number,
-      src.inventory.language,
-      src.disp.visual,
-      src.disp.visual.name.decode(Language::JAPANESE),
-      nullptr);
+std::shared_ptr<PSOBBCharacterFile> PSOBBCharacterFile::create_from_file(const PSOXBCharacterFile::Character& src) {
+  Language language = src.inventory.language;
+  auto ret = PSOBBCharacterFile::create_from_config(src.guild_card.guild_card_number, language, src.disp.visual);
   ret->inventory = src.inventory;
   ret->inventory.decode_from_client(Version::XB_V3);
-  Language language = ret->inventory.language;
-  ret->disp = src.disp.to_bb(language, language);
+  ret->disp = src.disp.to_v4(language, language);
   ret->validation_flags = src.validation_flags;
   ret->creation_timestamp = src.creation_timestamp;
   ret->play_time_seconds = src.play_time_seconds;
@@ -926,10 +863,10 @@ PSODCNTECharacterFile::Character PSOBBCharacterFile::as_dc_nte(uint64_t hardware
 
   PSODCNTECharacterFile::Character ret;
   ret.inventory = this->inventory;
-  // We don't need to do the v1-compatible encoding (hence it is OK to pass
-  // nullptr here) but we do need to encode mag stats in the v2 format
+  // We don't need to do the v1-compatible encoding (hence it is OK to pass nullptr here) but we do need to encode mag
+  // stats in the v2 format
   ret.inventory.encode_for_client(Version::DC_NTE, nullptr);
-  ret.disp = this->disp.to_dcpcv3<false>(language, language);
+  ret.disp = this->disp.to_v123<false>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::DC_V2);
   ret.masked_creation_timestamp = this->creation_timestamp ^ static_cast<uint32_t>(hardware_id >> 16);
   ret.creation_timestamp = this->creation_timestamp;
@@ -952,10 +889,10 @@ PSODC112000CharacterFile::Character PSOBBCharacterFile::as_11_2000(uint64_t hard
 
   PSODC112000CharacterFile::Character ret;
   ret.inventory = this->inventory;
-  // We don't need to do the v1-compatible encoding (hence it is OK to pass
-  // nullptr here) but we do need to encode mag stats in the v2 format
+  // We don't need to do the v1-compatible encoding (hence it is OK to pass nullptr here) but we do need to encode mag
+  // stats in the v2 format
   ret.inventory.encode_for_client(Version::DC_11_2000, nullptr);
-  ret.disp = this->disp.to_dcpcv3<false>(language, language);
+  ret.disp = this->disp.to_v123<false>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::DC_V2);
   ret.masked_creation_timestamp = this->creation_timestamp ^ static_cast<uint32_t>(hardware_id >> 16);
   ret.creation_timestamp = this->creation_timestamp;
@@ -989,10 +926,10 @@ PSOBBCharacterFile::operator PSODCV1CharacterFile::Character() const {
 
   PSODCV1CharacterFile::Character ret;
   ret.inventory = this->inventory;
-  // We don't need to do the v1-compatible encoding (hence it is OK to pass
-  // nullptr here) but we do need to encode mag stats in the v2 format
+  // We don't need to do the v1-compatible encoding (hence it is OK to pass nullptr here) but we do need to encode mag
+  // stats in the v2 format
   ret.inventory.encode_for_client(Version::DC_V1, nullptr);
-  ret.disp = this->disp.to_dcpcv3<false>(language, language);
+  ret.disp = this->disp.to_v123<false>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::DC_V2);
   ret.validation_flags = this->validation_flags;
   ret.creation_timestamp = this->creation_timestamp;
@@ -1021,10 +958,10 @@ PSOBBCharacterFile::operator PSODCV2CharacterFile::Character() const {
 
   PSODCV2CharacterFile::Character ret;
   ret.inventory = this->inventory;
-  // We don't need to do the v1-compatible encoding (hence it is OK to pass
-  // nullptr here) but we do need to encode mag stats in the v2 format
+  // We don't need to do the v1-compatible encoding (hence it is OK to pass nullptr here) but we do need to encode mag
+  // stats in the v2 format
   ret.inventory.encode_for_client(Version::DC_V2, nullptr);
-  ret.disp = this->disp.to_dcpcv3<false>(language, language);
+  ret.disp = this->disp.to_v123<false>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::DC_V2);
   ret.validation_flags = this->validation_flags;
   ret.creation_timestamp = this->creation_timestamp;
@@ -1062,11 +999,10 @@ PSOBBCharacterFile::operator PSOGCNTECharacterFileCharacter() const {
 
   PSOGCNTECharacterFileCharacter ret;
   ret.inventory = this->inventory;
-  // Note: We intentionally do not call ret.inventory.encode_for_client here.
-  // This is because the GC client byteswaps data2 in each item before sending
-  // it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does
-  // not do this, so the data2 fields are already in the correct order here.
-  ret.disp = this->disp.to_dcpcv3<true>(language, language);
+  // Note: We intentionally do not call ret.inventory.encode_for_client here. This is because the GC client byteswaps
+  // data2 in each item before sending it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does not
+  // do this, so the data2 fields are already in the correct order here.
+  ret.disp = this->disp.to_v123<true>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::GC_V3);
   ret.validation_flags = this->validation_flags;
   ret.creation_timestamp = this->creation_timestamp;
@@ -1100,11 +1036,10 @@ PSOBBCharacterFile::operator PSOGCCharacterFile::Character() const {
 
   PSOGCCharacterFile::Character ret;
   ret.inventory = this->inventory;
-  // Note: We intentionally do not call ret.inventory.encode_for_client here.
-  // This is because the GC client byteswaps data2 in each item before sending
-  // it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does
-  // not do this, so the data2 fields are already in the correct order here.
-  ret.disp = this->disp.to_dcpcv3<true>(language, language);
+  // Note: We intentionally do not call ret.inventory.encode_for_client here. This is because the GC client byteswaps
+  // data2 in each item before sending it to the server in the 61 and 98 commands, but GetExtendedPlayerInfo does not
+  // do this, so the data2 fields are already in the correct order here.
+  ret.disp = this->disp.to_v123<true>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::GC_V3);
   ret.validation_flags = this->validation_flags;
   ret.creation_timestamp = this->creation_timestamp;
@@ -1149,7 +1084,7 @@ PSOBBCharacterFile::operator PSOXBCharacterFile::Character() const {
   PSOXBCharacterFile::Character ret;
   ret.inventory = this->inventory;
   ret.inventory.encode_for_client(Version::XB_V3, nullptr);
-  ret.disp = this->disp.to_dcpcv3<false>(language, language);
+  ret.disp = this->disp.to_v123<false>(language, language);
   ret.disp.visual.enforce_lobby_join_limits_for_version(Version::XB_V3);
   ret.validation_flags = this->validation_flags;
   ret.creation_timestamp = this->creation_timestamp;
@@ -1189,24 +1124,24 @@ PSOBBCharacterFile::operator PSOXBCharacterFile::Character() const {
   return ret;
 }
 
-PSOCHARFile::LoadSharedResult PSOCHARFile::load_shared(const string& filename, bool load_system) {
+PSOCHARFile::LoadSharedResult PSOCHARFile::load_shared(const std::string& filename, bool load_system) {
   auto f = phosg::fopen_unique(filename, "rb");
   auto header = phosg::freadx<PSOCommandHeaderBB>(f.get());
   if (header.size != 0x399C) {
-    throw runtime_error("incorrect size in character file header");
+    throw std::runtime_error("incorrect size in character file header");
   }
   if (header.command != 0x00E7) {
-    throw runtime_error("incorrect command in character file header");
+    throw std::runtime_error("incorrect command in character file header");
   }
   if (header.flag != 0x00000000) {
-    throw runtime_error("incorrect flag in character file header");
+    throw std::runtime_error("incorrect flag in character file header");
   }
   static_assert(sizeof(PSOBBCharacterFile) + sizeof(PSOBBBaseSystemFile) + sizeof(PSOBBFullTeamMembership) == 0x3994, ".psochar size is incorrect");
 
   LoadSharedResult ret;
-  ret.character_file = make_shared<PSOBBCharacterFile>(phosg::freadx<PSOBBCharacterFile>(f.get()));
+  ret.character_file = std::make_shared<PSOBBCharacterFile>(phosg::freadx<PSOBBCharacterFile>(f.get()));
   if (load_system) {
-    ret.system_file = make_shared<PSOBBBaseSystemFile>(phosg::freadx<PSOBBBaseSystemFile>(f.get()));
+    ret.system_file = std::make_shared<PSOBBBaseSystemFile>(phosg::freadx<PSOBBBaseSystemFile>(f.get()));
   }
   return ret;
 }
@@ -1220,27 +1155,22 @@ void PSOCHARFile::save(
   phosg::fwritex(f.get(), header);
   phosg::fwritex(f.get(), *character);
   phosg::fwritex(f.get(), *system);
-  // TODO: Technically, we should write the actual team membership struct to
-  // the file here, but that would cause Client to depend on Account, which it
-  // currently does not. This data doesn't matter at all for correctness within
-  // newserv, since it ignores this data entirely and instead generates the
-  // membership struct from the team ID in the Account and the team's state.
-  // So, writing correct data here would mostly be for compatibility with other
-  // PSO servers. But if the other server is newserv, then this data wouldn't
-  // be used anyway, and if it's not, then it would presumably have a different
-  // set of teams with a different set of team IDs anyway, so the membership
-  // struct here would be useless either way.
+  // TODO: Technically, we should write the actual team membership struct to the file here, but that would cause Client
+  // to depend on Account, which it currently does not. This data doesn't matter at all for correctness within newserv,
+  // since it ignores this data entirely and instead generates the membership struct from the team ID in the Account
+  // and the team's state. So, writing correct data here would mostly be for compatibility with other PSO servers. But
+  // if the other server is newserv, then this data wouldn't be used anyway, and if it's not, then it would presumably
+  // have a different set of teams with a different set of team IDs anyway, so the membership struct here would be
+  // useless either way.
   static const PSOBBFullTeamMembership empty_membership;
   phosg::fwritex(f.get(), empty_membership);
 }
 
-// TODO: Eliminate duplication between this function and the parallel function
-// in PlayerBankT
+// TODO: Eliminate duplication between this function and the parallel function in PlayerBankT
 void PSOBBCharacterFile::add_item(const ItemData& item, const ItemData::StackLimits& limits) {
   uint32_t primary_identifier = item.primary_identifier();
 
-  // Annoyingly, meseta is in the disp data, not in the inventory struct. If the
-  // item is meseta, we have to modify disp instead.
+  // Meseta is in the disp data, not in the inventory struct. If the item is meseta, we have to modify disp instead.
   if (primary_identifier == 0x04000000) {
     this->add_meseta(item.data2d);
     return;
@@ -1249,8 +1179,7 @@ void PSOBBCharacterFile::add_item(const ItemData& item, const ItemData::StackLim
   // Handle combinable items
   size_t combine_max = item.max_stack_size(limits);
   if (combine_max > 1) {
-    // Get the item index if there's already a stack of the same item in the
-    // player's inventory
+    // Get the item index if there's already a stack of the same item in the player's inventory
     size_t y;
     for (y = 0; y < this->inventory.num_items; y++) {
       if (this->inventory.items[y].data.primary_identifier() == primary_identifier) {
@@ -1262,33 +1191,30 @@ void PSOBBCharacterFile::add_item(const ItemData& item, const ItemData::StackLim
     if (y < this->inventory.num_items) {
       size_t new_stack_size = this->inventory.items[y].data.data1[5] + item.data1[5];
       if (new_stack_size > combine_max) {
-        throw out_of_range("stack is too large");
+        throw std::out_of_range("stack is too large");
       }
       this->inventory.items[y].data.data1[5] = new_stack_size;
       return;
     }
   }
 
-  // If we get here, then it's not meseta and not a combine item, so it needs to
-  // go into an empty inventory slot
+  // If we get here, then it's not meseta and not a combine item, so it needs to go into an empty inventory slot
   if (this->inventory.num_items >= 30) {
-    throw out_of_range("inventory is full");
+    throw std::out_of_range("inventory is full");
   }
   auto& inv_item = this->inventory.items[this->inventory.num_items];
-  inv_item.present = 1;
+  inv_item.state = 1;
   inv_item.unknown_a1 = 0;
   inv_item.flags = 0;
   inv_item.data = item;
   this->inventory.num_items++;
 }
 
-// TODO: Eliminate code duplication between this function and the parallel
-// function in PlayerBankT
+// TODO: Eliminate code duplication between this function and the parallel function in PlayerBankT
 ItemData PSOBBCharacterFile::remove_item(uint32_t item_id, uint32_t amount, const ItemData::StackLimits& limits) {
   ItemData ret;
 
-  // If we're removing meseta (signaled by an invalid item ID), then create a
-  // meseta item.
+  // If we're removing meseta (signaled by an invalid item ID), then create a meseta item.
   if (item_id == 0xFFFFFFFF) {
     this->remove_meseta(amount, !is_v4(limits.version));
     ret.data1[0] = 0x04;
@@ -1300,13 +1226,12 @@ ItemData PSOBBCharacterFile::remove_item(uint32_t item_id, uint32_t amount, cons
   auto& inventory_item = this->inventory.items[index];
   bool is_equipped = (inventory_item.flags & 0x00000008);
 
-  // If the item is a combine item and are we removing less than we have of it,
-  // then create a new item and reduce the amount of the existing stack. Note
-  // that passing amount == 0 means to remove the entire stack, so this only
-  // applies if amount is nonzero.
+  // If the item is a combine item and are we removing less than we have of it, then create a new item and reduce the
+  // amount of the existing stack. Note that passing amount == 0 means to remove the entire stack, so this only applies
+  // if amount is nonzero.
   if (amount && (inventory_item.data.stack_size(limits) > 1) && (amount < inventory_item.data.data1[5])) {
     if (is_equipped) {
-      throw runtime_error("character has a combine item equipped");
+      throw std::runtime_error("character has a combine item equipped");
     }
     ret = inventory_item.data;
     ret.data1[5] = amount;
@@ -1315,9 +1240,8 @@ ItemData PSOBBCharacterFile::remove_item(uint32_t item_id, uint32_t amount, cons
     return ret;
   }
 
-  // If we get here, then it's not meseta, and either it's not a combine item or
-  // we're removing the entire stack. Delete the item from the inventory slot
-  // and return the deleted item.
+  // If we get here, then it's not meseta, and either it's not a combine item or we're removing the entire stack.
+  // Delete the item from the inventory slot and return the deleted item.
   if (is_equipped) {
     this->inventory.unequip_item_index(index);
   }
@@ -1326,13 +1250,13 @@ ItemData PSOBBCharacterFile::remove_item(uint32_t item_id, uint32_t amount, cons
   for (size_t x = index; x < this->inventory.num_items; x++) {
     auto& to_item = this->inventory.items[x];
     const auto& from_item = this->inventory.items[x + 1];
-    to_item.present = from_item.present;
+    to_item.state = from_item.state;
     to_item.unknown_a1 = from_item.unknown_a1;
     to_item.flags = from_item.flags;
     to_item.data = from_item.data;
   }
   auto& last_item = this->inventory.items[this->inventory.num_items];
-  last_item.present = 0;
+  last_item.state = 0;
   last_item.unknown_a1 = 0;
   last_item.flags = 0;
   last_item.data.clear();
@@ -1340,7 +1264,7 @@ ItemData PSOBBCharacterFile::remove_item(uint32_t item_id, uint32_t amount, cons
 }
 
 void PSOBBCharacterFile::add_meseta(uint32_t amount) {
-  this->disp.stats.meseta = min<size_t>(static_cast<size_t>(this->disp.stats.meseta) + amount, 999999);
+  this->disp.stats.meseta = std::min<size_t>(static_cast<size_t>(this->disp.stats.meseta) + amount, 999999);
 }
 
 void PSOBBCharacterFile::remove_meseta(uint32_t amount, bool allow_overdraft) {
@@ -1349,7 +1273,7 @@ void PSOBBCharacterFile::remove_meseta(uint32_t amount, bool allow_overdraft) {
   } else if (allow_overdraft) {
     this->disp.stats.meseta = 0;
   } else {
-    throw out_of_range("player does not have enough meseta");
+    throw std::out_of_range("player does not have enough meseta");
   }
 }
 
@@ -1385,7 +1309,7 @@ uint8_t PSOBBCharacterFile::get_material_usage(MaterialType which) const {
     case MaterialType::LUCK:
       return this->inventory.items[8 + static_cast<uint8_t>(which)].extension_data2;
     default:
-      throw logic_error("invalid material type");
+      throw std::logic_error("invalid material type");
   }
 }
 
@@ -1405,7 +1329,7 @@ void PSOBBCharacterFile::set_material_usage(MaterialType which, uint8_t usage) {
       this->inventory.items[8 + static_cast<uint8_t>(which)].extension_data2 = usage;
       break;
     default:
-      throw logic_error("invalid material type");
+      throw std::logic_error("invalid material type");
   }
 }
 
@@ -1418,10 +1342,9 @@ void PSOBBCharacterFile::clear_all_material_usage() {
 }
 
 void PSOBBCharacterFile::import_tethealla_material_usage(std::shared_ptr<const LevelTable> level_table) {
-  // Tethealla (Ephinea) doesn't store material counts anywhere in the file,
-  // so if the material counts in the inventory extension data are all zero,
-  // check the current stats against the expected stats for the character's
-  // current level and set the material counts if they make sense.
+  // Tethealla (Ephinea) doesn't store material counts anywhere in the file, so if the material counts in the inventory
+  // extension data are all zero, check the current stats against the expected stats for the character's current level
+  // and set the material counts if they make sense.
   if (this->get_material_usage(PSOBBCharacterFile::MaterialType::POWER) |
       this->get_material_usage(PSOBBCharacterFile::MaterialType::MIND) |
       this->get_material_usage(PSOBBCharacterFile::MaterialType::EVADE) |
@@ -1431,8 +1354,8 @@ void PSOBBCharacterFile::import_tethealla_material_usage(std::shared_ptr<const L
   }
 
   PlayerStats level_base_stats = this->disp.stats;
-  level_table->reset_to_base(level_base_stats, this->disp.visual.char_class);
-  level_table->advance_to_level(level_base_stats, this->disp.stats.level, this->disp.visual.char_class);
+  level_table->reset_to_base(level_base_stats, this->disp.visual.sh.char_class);
+  level_table->advance_to_level(level_base_stats, this->disp.stats.level, this->disp.visual.sh.char_class);
 
   uint64_t pow = (this->disp.stats.char_stats.atp - level_base_stats.char_stats.atp) / 2;
   uint64_t mind = (this->disp.stats.char_stats.mst - level_base_stats.char_stats.mst) / 2;
@@ -1440,9 +1363,8 @@ void PSOBBCharacterFile::import_tethealla_material_usage(std::shared_ptr<const L
   uint64_t def = (this->disp.stats.char_stats.dfp - level_base_stats.char_stats.dfp) / 2;
   uint64_t luck = (this->disp.stats.char_stats.lck - level_base_stats.char_stats.lck) / 2;
 
-  // We intentionally do not check any limits here. This is because on pre-v3,
-  // there are no limits, and we don't want to reject legitimate characters
-  // that have used more than 250 materials.
+  // We intentionally do not check any limits here. This is because on pre-v3, there are no limits, and we don't want
+  // to reject legitimate characters that have used more than 250 materials.
 
   this->set_material_usage(MaterialType::POWER, pow);
   this->set_material_usage(MaterialType::MIND, mind);
@@ -1453,11 +1375,11 @@ void PSOBBCharacterFile::import_tethealla_material_usage(std::shared_ptr<const L
 
 void PSOBBCharacterFile::recompute_stats(std::shared_ptr<const LevelTable> level_table, bool reset_exp) {
   uint32_t level = this->disp.stats.level;
-  uint32_t exp = this->disp.stats.experience;
-  level_table->reset_to_base(this->disp.stats, this->disp.visual.char_class);
-  level_table->advance_to_level(this->disp.stats, level, this->disp.visual.char_class);
+  uint32_t exp = this->disp.stats.exp;
+  level_table->reset_to_base(this->disp.stats, this->disp.visual.sh.char_class);
+  level_table->advance_to_level(this->disp.stats, level, this->disp.visual.sh.char_class);
   if (!reset_exp) {
-    this->disp.stats.experience = exp;
+    this->disp.stats.exp = exp;
   }
 
   this->disp.stats.char_stats.atp += (this->get_material_usage(MaterialType::POWER) * 2);
@@ -1514,29 +1436,30 @@ static uint16_t crc16(const void* data, size_t size) {
   return ret ^ 0xFFFF;
 }
 
-string encode_psobb_hangame_credentials(const string& user_id, const string& token, const string& unused) {
+std::string encode_psobb_hangame_credentials(
+    const std::string& user_id, const std::string& token, const std::string& unused) {
   if (user_id.size() < 4) {
-    throw runtime_error("user_id must be at least 4 characters");
+    throw std::runtime_error("user_id must be at least 4 characters");
   }
   if (user_id.size() > 12) {
-    throw runtime_error("user_id must be at most 12 characters");
+    throw std::runtime_error("user_id must be at most 12 characters");
   }
   if (!user_id.ends_with("@HG")) {
-    throw runtime_error("user_id must end with \"@HG\"");
+    throw std::runtime_error("user_id must end with \"@HG\"");
   }
   if (token.empty()) {
-    throw runtime_error("token must not be empty");
+    throw std::runtime_error("token must not be empty");
   }
   if (token.size() > 8) {
-    throw runtime_error("token must be at most 8 characters");
+    throw std::runtime_error("token must be at most 8 characters");
   }
   for (char ch : token) {
     if (!isdigit(ch)) {
-      throw runtime_error("token must contain only decimal digits");
+      throw std::runtime_error("token must contain only decimal digits");
     }
   }
   if (unused.size() > 0xFF) {
-    throw runtime_error("unused must be at most 255 characters");
+    throw std::runtime_error("unused must be at most 255 characters");
   }
 
   // The encoded format is:
@@ -1550,7 +1473,7 @@ string encode_psobb_hangame_credentials(const string& user_id, const string& tok
   //   uint8_t unused_size;
   //   char unused[unused_size]; // Ignored (possibly email address?)
   // We'll fill in mask_key and checksum after all the other fields.
-  string data(7, '\0'); // mask_key, checksum, unused
+  std::string data(7, '\0'); // mask_key, checksum, unused
   data.push_back(user_id.size());
   data += user_id;
   data.push_back(token.size());

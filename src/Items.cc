@@ -4,14 +4,11 @@
 
 #include "SendCommands.hh"
 
-using namespace std;
-
-void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomGenerator> rand_crypt) {
+void player_use_item(std::shared_ptr<Client> c, size_t item_index, std::shared_ptr<RandomGenerator> rand_crypt) {
   auto s = c->require_server_state();
 
-  // On PC (and presumably DC), the client sends a 6x29 after this to delete the
-  // used item. On GC and later versions, this does not happen, so we should
-  // delete the item here.
+  // On PC (and presumably DC), the client sends a 6x29 after this to delete the used item. On GC and later versions,
+  // this does not happen, so we should delete the item here.
   bool is_v4 = ::is_v4(c->version());
   bool is_v3_or_later = is_v3(c->version()) || is_v4;
   bool should_delete_item = is_v3_or_later;
@@ -24,27 +21,26 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
     // Nothing to do (it should be deleted)
 
   } else if ((primary_identifier & 0xFFFF0000) == 0x03020000) { // Technique disk
-    auto item_parameter_table = s->item_parameter_table(c->version());
-    uint8_t max_level = item_parameter_table->get_max_tech_level(player->disp.visual.char_class, item.data.data1[4]);
+    auto item_parameter_table = s->data->item_parameter_table(c->version());
+    uint8_t max_level = item_parameter_table->get_max_tech_level(player->disp.visual.sh.char_class, item.data.data1[4]);
     if (item.data.data1[2] > max_level) {
-      throw runtime_error("technique level too high");
+      throw std::runtime_error("technique level too high");
     }
     player->set_technique_level(item.data.data1[4], item.data.data1[2]);
 
   } else if ((primary_identifier & 0xFFFF0000) == 0x030A0000) { // Grinder
     if (item.data.data1[2] > 2) {
-      throw runtime_error("incorrect grinder value");
+      throw std::runtime_error("incorrect grinder value");
     }
 
     auto& weapon = player->inventory.items[player->inventory.find_equipped_item(EquipSlot::WEAPON)];
-    // Only enforce grind limits on BB, since the server doesn't have direct
-    // control over players' inventories on other versions
-    auto item_parameter_table = s->item_parameter_table(c->version());
+    // Only enforce grind limits on BB, since the server doesn't have direct control over inventories on other versions
+    auto item_parameter_table = s->data->item_parameter_table(c->version());
     auto weapon_def = item_parameter_table->get_weapon(weapon.data.data1[1], weapon.data.data1[2]);
     if (is_v4 && (weapon.data.data1[3] >= weapon_def.max_grind)) {
-      throw runtime_error("weapon already at maximum grind");
+      throw std::runtime_error("weapon already at maximum grind");
     }
-    weapon.data.data1[3] = min<uint8_t>(weapon.data.data1[3] + item.data.data1[2] + 1, weapon_def.max_grind);
+    weapon.data.data1[3] = std::min<uint8_t>(weapon.data.data1[3] + item.data.data1[2] + 1, weapon_def.max_grind);
 
   } else if ((primary_identifier & 0xFFFF0000) == 0x030B0000) { // Material
     auto p = c->character_file();
@@ -77,8 +73,6 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
       case 6: // Hit Material (v1/v2) or Luck Material (v3/v4)
         type = Type::LUCK;
         if (!is_v3_or_later && (c->version() != Version::GC_NTE)) {
-          // Hit material doesn't exist on v3/v4, but we'll ignore type anyway
-          // in this case because track_non_hp_tp_materials is false
           p->disp.stats.char_stats.ata += 2;
         } else {
           p->disp.stats.char_stats.lck += 2;
@@ -89,11 +83,11 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
         if (!is_v3_or_later && (c->version() != Version::GC_NTE)) {
           p->disp.stats.char_stats.lck += 2;
         } else {
-          throw runtime_error("unknown material used");
+          throw std::runtime_error("unknown material used");
         }
         break;
       default:
-        throw runtime_error("unknown material used");
+        throw std::runtime_error("unknown material used");
     }
     if (is_v3_or_later || (type == Type::HP) || (type == Type::TP)) {
       p->set_material_usage(type, p->get_material_usage(type) + 1);
@@ -102,13 +96,13 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
   } else if ((primary_identifier & 0xFFFF0000) == 0x030F0000) { // AddSlot
     auto& armor = player->inventory.items[player->inventory.find_equipped_item(EquipSlot::ARMOR)];
     if (armor.data.data1[5] >= 4) {
-      throw runtime_error("armor already at maximum slot count");
+      throw std::runtime_error("armor already at maximum slot count");
     }
     armor.data.data1[5]++;
 
-  } else if (item.data.is_wrapped(*s->item_stack_limits(c->version()))) {
+  } else if (item.data.is_wrapped(*s->data->item_stack_limits(c->version()))) {
     // Unwrap present
-    item.data.unwrap(*s->item_stack_limits(c->version()));
+    item.data.unwrap(*s->data->item_stack_limits(c->version()));
     should_delete_item = false;
 
   } else if (primary_identifier == 0x00330000) {
@@ -137,13 +131,14 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
 
   } else if ((primary_identifier & 0xFFFF0000) == 0x030C0000) { // Non-combo mag cells
     auto& mag = player->inventory.items[player->inventory.find_equipped_item(EquipSlot::MAG)];
-    if (s->mag_evolution_table(c->version())->get_evolution_number(mag.data.data1[1]) < 4) {
+    uint8_t evolution_number = s->data->mag_metadata_table(c->version())->get_evolution_number(mag.data.data1[1]);
+    if (evolution_number < 4) {
       switch (item.data.data1[2]) {
         case 0x00: // Cell of MAG 502
-          mag.data.data1[1] = (player->disp.visual.section_id & 1) ? 0x1D : 0x21;
+          mag.data.data1[1] = (player->disp.visual.sh.section_id & 1) ? 0x1D : 0x21;
           break;
         case 0x01: // Cell of MAG 213
-          mag.data.data1[1] = (player->disp.visual.section_id & 1) ? 0x27 : 0x22;
+          mag.data.data1[1] = (player->disp.visual.sh.section_id & 1) ? 0x27 : 0x22;
           break;
         case 0x02: // Parts of RoboChao
           mag.data.data1[1] = 0x28;
@@ -158,25 +153,24 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
           mag.data.data1[1] = 0x2B;
           break;
         default:
-          throw runtime_error("invalid mag cell used");
+          throw std::runtime_error("invalid mag cell used");
       }
     }
 
   } else if ((primary_identifier & 0xFFFF0000) == 0x03150000) {
     // Christmas Present, etc. - use unwrap_table + probabilities therein
-    auto item_parameter_table = s->item_parameter_table(c->version());
+    auto item_parameter_table = s->data->item_parameter_table(c->version());
     auto table = item_parameter_table->get_event_items(item.data.data1[2]);
     size_t sum = 0;
     for (size_t z = 0; z < table.second; z++) {
       sum += table.first[z].probability;
     }
     if (sum == 0) {
-      throw runtime_error("no unwrap results available for event");
+      throw std::runtime_error("no unwrap results available for event");
     }
-    // TODO: It seems that on non-BB, clients don't synchronize this at all, so
-    // they could end up thinking the unwrapped item is something completely
-    // different. (They don't even use a fixed random seed, like for rares;
-    // they just call rand().) How does this actually work on console PSO?
+    // TODO: It seems that on non-BB, clients don't synchronize this at all, so they could end up thinking the
+    // unwrapped item is something completely different. (They don't even use a fixed random seed, like for rares; they
+    // just call rand().) How does this actually work on console PSO?
     size_t det = rand_crypt->next() % sum;
     for (size_t z = 0; z < table.second; z++) {
       const auto& entry = table.first[z];
@@ -204,7 +198,7 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
     // The unopened Hunters Report's rank is stored in the kill count field; using the unopened report copies the rank
     // to data1[2] and replaces the inventory item with a new item with the same ID. The game also moves the item to
     // the end of the inventory, so we do the same.
-    const auto& stack_limits = *s->item_stack_limits(c->version());
+    const auto& stack_limits = *s->data->item_stack_limits(c->version());
     auto report_item = player->remove_item(item.data.id, 1, stack_limits);
     report_item.data1[2] = report_item.get_kill_count();
     player->add_item(report_item, stack_limits);
@@ -219,33 +213,33 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
         continue;
       }
       try {
-        auto item_parameter_table = s->item_parameter_table(c->version());
+        auto item_parameter_table = s->data->item_parameter_table(c->version());
         const auto& combo = item_parameter_table->get_item_combination(item.data, inv_item.data);
-        if (combo.char_class != 0xFF && combo.char_class != player->disp.visual.char_class) {
-          throw runtime_error("item combination requires specific char_class");
+        if (combo.char_class != 0xFF && combo.char_class != player->disp.visual.sh.char_class) {
+          throw std::runtime_error("item combination requires specific char_class");
         }
         if (combo.mag_level != 0xFF) {
           if (inv_item.data.data1[0] != 2) {
-            throw runtime_error("item combination applies with mag level requirement, but equipped item is not a mag");
+            throw std::runtime_error("item combination applies with mag level requirement, but equipped item is not a mag");
           }
           if (inv_item.data.compute_mag_level() < combo.mag_level) {
-            throw runtime_error("item combination applies with mag level requirement, but equipped mag level is too low");
+            throw std::runtime_error("item combination applies with mag level requirement, but equipped mag level is too low");
           }
         }
         if (combo.grind != 0xFF) {
           if (inv_item.data.data1[0] != 0) {
-            throw runtime_error("item combination applies with grind requirement, but equipped item is not a weapon");
+            throw std::runtime_error("item combination applies with grind requirement, but equipped item is not a weapon");
           }
           if (inv_item.data.data1[3] < combo.grind) {
-            throw runtime_error("item combination applies with grind requirement, but equipped weapon grind is too low");
+            throw std::runtime_error("item combination applies with grind requirement, but equipped weapon grind is too low");
           }
         }
         if (combo.level != 0xFF && player->disp.stats.level + 1 < combo.level) {
-          throw runtime_error("item combination applies with level requirement, but player level is too low");
+          throw std::runtime_error("item combination applies with level requirement, but player level is too low");
         }
         // If we get here, then the combo applies
         if (combo_applied) {
-          throw runtime_error("multiple combinations apply");
+          throw std::runtime_error("multiple combinations apply");
         }
         combo_applied = true;
 
@@ -258,28 +252,28 @@ void player_use_item(shared_ptr<Client> c, size_t item_index, shared_ptr<RandomG
           inv_item.data.data1[4] = 0; // Flags + special
         }
         inv_item.flags &= (~8); // Unequip it
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
       }
     }
   }
 
   if (should_delete_item) {
-    // Allow overdrafting meseta if the client is not BB, since the server isn't
-    // informed when meseta is added or removed from the bank.
-    player->remove_item(item.data.id, 1, *s->item_stack_limits(c->version()));
+    // Allow overdrafting meseta if the client is not BB, since the server isn't informed when meseta is added or
+    // removed from the bank.
+    player->remove_item(item.data.id, 1, *s->data->item_stack_limits(c->version()));
   }
 }
 
 void apply_mag_feed_result(
     ItemData& mag_item,
     const ItemData& fed_item,
-    shared_ptr<const ItemParameterTable> item_parameter_table,
-    shared_ptr<const MagEvolutionTable> mag_evolution_table,
+    std::shared_ptr<const ItemParameterTable> item_parameter_table,
+    std::shared_ptr<const MagMetadataTable> mag_metadata_table,
     uint8_t char_class,
     uint8_t section_id,
     bool version_has_rare_mags) {
 
-  static const unordered_map<uint32_t, size_t> result_index_for_fed_item({
+  static const std::unordered_map<uint32_t, size_t> result_index_for_fed_item({
       {0x03000000, 0}, // Monomate
       {0x03000100, 1}, // Dimate
       {0x03000200, 2}, // Trimate
@@ -302,7 +296,7 @@ void apply_mag_feed_result(
     if ((delta > 0) || ((delta < 0) && (-delta < existing_stat))) {
       uint16_t level = data.compute_mag_level();
       if (level > 200) {
-        throw runtime_error("mag level is too high");
+        throw std::runtime_error("mag level is too high");
       }
       if ((level == 200) && ((99 - existing_stat) < delta)) {
         delta = 99 - existing_stat;
@@ -315,16 +309,16 @@ void apply_mag_feed_result(
   update_stat(mag_item, 3, feed_result.pow);
   update_stat(mag_item, 4, feed_result.dex);
   update_stat(mag_item, 5, feed_result.mind);
-  mag_item.data2[0] = clamp<ssize_t>(static_cast<ssize_t>(mag_item.data2[0]) + feed_result.synchro, 0, 120);
-  mag_item.data2[1] = clamp<ssize_t>(static_cast<ssize_t>(mag_item.data2[1]) + feed_result.iq, 0, 200);
+  mag_item.data2[0] = std::clamp<ssize_t>(static_cast<ssize_t>(mag_item.data2[0]) + feed_result.synchro, 0, 120);
+  mag_item.data2[1] = std::clamp<ssize_t>(static_cast<ssize_t>(mag_item.data2[1]) + feed_result.iq, 0, 200);
 
   uint8_t mag_level = mag_item.compute_mag_level();
   mag_item.data1[2] = mag_level;
-  uint8_t evolution_number = mag_evolution_table->get_evolution_number(mag_item.data1[1]);
+  uint8_t evolution_number = mag_metadata_table->get_evolution_number(mag_item.data1[1]);
   uint8_t mag_number = mag_item.data1[1];
 
-  // Note: Sega really did just hardcode all these rules into the client. There
-  // is no data file describing these evolutions, unfortunately.
+  // Note: Sega really did just hardcode all these rules into the client. There is no data file describing these
+  // evolutions, unfortunately.
 
   if (mag_level < 10) {
     // Nothing to do
@@ -351,7 +345,7 @@ void apply_mag_feed_result(
           mag_item.data1[1] = 0x19; // Vritra
           break;
         default:
-          throw runtime_error("invalid character class");
+          throw std::runtime_error("invalid character class");
       }
     }
 
@@ -405,12 +399,11 @@ void apply_mag_feed_result(
         } else if (is_ranger) {
           table_index += 6;
         } else if (!is_hunter) {
-          throw logic_error("char class is not any of the top-level classes");
+          throw std::logic_error("char class is not any of the top-level classes");
         }
 
-        // Note: The original code checks the class (hunter/ranger/force) again
-        // here, and goes into 3 branches that each do these same checks.
-        // However, the result of all 3 branches is exactly the same!
+        // Note: The original code checks the class (hunter/ranger/force) again here, and goes into 3 branches that
+        // each do these same checks. However, the result of all 3 branches is exactly the same!
         if (((section_id_group == 0) && (pow + mind == def + dex)) ||
             ((section_id_group == 1) && (pow + dex == mind + def)) ||
             ((section_id_group == 2) && (pow + def == mind + dex))) {
@@ -438,59 +431,41 @@ void apply_mag_feed_result(
         bool is_ranger = char_class_is_ranger(char_class);
         bool is_force = char_class_is_force(char_class);
         if (is_hunter + is_ranger + is_force != 1) {
-          throw logic_error("char class is not exactly one of the top-level classes");
+          throw std::logic_error("char class is not exactly one of the top-level classes");
         }
 
         if (is_hunter) {
           if (flags & 0x108) {
-            mag_item.data1[1] = (section_id & 1)
-                ? ((dex < mind) ? 0x08 : 0x06)
-                : ((dex < mind) ? 0x0C : 0x05);
+            mag_item.data1[1] = (section_id & 1) ? ((dex < mind) ? 0x08 : 0x06) : ((dex < mind) ? 0x0C : 0x05);
           } else if (flags & 0x010) {
-            mag_item.data1[1] = (section_id & 1)
-                ? ((mind < pow) ? 0x12 : 0x10)
-                : ((mind < pow) ? 0x17 : 0x13);
+            mag_item.data1[1] = (section_id & 1) ? ((mind < pow) ? 0x12 : 0x10) : ((mind < pow) ? 0x17 : 0x13);
           } else if (flags & 0x020) {
-            mag_item.data1[1] = (section_id & 1)
-                ? ((pow < dex) ? 0x16 : 0x24)
-                : ((pow < dex) ? 0x07 : 0x1E);
+            mag_item.data1[1] = (section_id & 1) ? ((pow < dex) ? 0x16 : 0x24) : ((pow < dex) ? 0x07 : 0x1E);
           }
         } else if (is_ranger) {
           if (flags & 0x110) {
-            mag_item.data1[1] = (section_id & 1)
-                ? ((mind < pow) ? 0x0A : 0x05)
-                : ((mind < pow) ? 0x0C : 0x06);
+            mag_item.data1[1] = (section_id & 1) ? ((mind < pow) ? 0x0A : 0x05) : ((mind < pow) ? 0x0C : 0x06);
           } else if (flags & 0x008) {
-            mag_item.data1[1] = (section_id & 1)
-                ? ((dex < mind) ? 0x0A : 0x26)
-                : ((dex < mind) ? 0x0C : 0x06);
+            mag_item.data1[1] = (section_id & 1) ? ((dex < mind) ? 0x0A : 0x26) : ((dex < mind) ? 0x0C : 0x06);
           } else if (flags & 0x020) {
-            mag_item.data1[1] = (section_id & 1)
-                ? ((pow < dex) ? 0x18 : 0x1E)
-                : ((pow < dex) ? 0x08 : 0x05);
+            mag_item.data1[1] = (section_id & 1) ? ((pow < dex) ? 0x18 : 0x1E) : ((pow < dex) ? 0x08 : 0x05);
           }
         } else if (is_force) {
           if (flags & 0x120) {
             if (def < 45) {
-              mag_item.data1[1] = (section_id & 1)
-                  ? ((pow < dex) ? 0x17 : 0x09)
-                  : ((pow < dex) ? 0x1E : 0x1C);
+              mag_item.data1[1] = (section_id & 1) ? ((pow < dex) ? 0x17 : 0x09) : ((pow < dex) ? 0x1E : 0x1C);
             } else {
               mag_item.data1[1] = 0x24;
             }
           } else if (flags & 0x008) {
             if (def < 45) {
-              mag_item.data1[1] = (section_id & 1)
-                  ? ((dex < mind) ? 0x1C : 0x20)
-                  : ((dex < mind) ? 0x1F : 0x25);
+              mag_item.data1[1] = (section_id & 1) ? ((dex < mind) ? 0x1C : 0x20) : ((dex < mind) ? 0x1F : 0x25);
             } else {
               mag_item.data1[1] = 0x23;
             }
           } else if (flags & 0x010) {
             if (def < 45) {
-              mag_item.data1[1] = (section_id & 1)
-                  ? ((mind < pow) ? 0x12 : 0x0C)
-                  : ((mind < pow) ? 0x15 : 0x11);
+              mag_item.data1[1] = (section_id & 1) ? ((mind < pow) ? 0x12 : 0x0C) : ((mind < pow) ? 0x15 : 0x11);
             } else {
               mag_item.data1[1] = 0x24;
             }
@@ -513,9 +488,9 @@ void player_feed_mag(std::shared_ptr<Client> c, size_t mag_item_index, size_t fe
   apply_mag_feed_result(
       player->inventory.items[mag_item_index].data,
       player->inventory.items[fed_item_index].data,
-      s->item_parameter_table(c->version()),
-      s->mag_evolution_table(c->version()),
-      player->disp.visual.char_class,
-      player->disp.visual.section_id,
+      s->data->item_parameter_table(c->version()),
+      s->data->mag_metadata_table(c->version()),
+      player->disp.visual.sh.char_class,
+      player->disp.visual.sh.section_id,
       !is_v1_or_v2(c->version()));
 }

@@ -17,10 +17,9 @@
 #include "StaticGameData.hh"
 
 struct QuestMetadata {
-  // This structure contains configuration that should be the same across all
-  // versions of the quest, except for the name and description strings. This
-  // is used in both the Quest and VersionedQuest structures; in Quest, the
-  // name and description are used only internally.
+  // This structure contains configuration that should be the same across all versions of the quest, except for the
+  // name and description strings. This is used in both the Quest and VersionedQuest structures; in Quest, the name and
+  // description are used only internally.
 
   Version version;
   Language language;
@@ -40,7 +39,7 @@ struct QuestMetadata {
     std::string str() const;
   };
   uint32_t category_id = 0xFFFFFFFF;
-  uint32_t quest_number = 0xFFFFFFFF;
+  uint32_t quest_number = 0;
   Episode episode = Episode::NONE;
   std::array<FloorAssignment, 0x12> floor_assignments;
   bool joinable = false;

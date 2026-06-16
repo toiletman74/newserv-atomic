@@ -14,13 +14,11 @@
 #include "Quest.hh"
 #include "StaticGameData.hh"
 
-using namespace std;
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Set data table (variations index)
 
-string Variations::str() const {
-  string ret = "";
+std::string Variations::str() const {
+  std::string ret = "";
   for (size_t z = 0; z < this->entries.size(); z++) {
     const auto& e = this->entries[z];
     if (!ret.empty()) {
@@ -43,7 +41,7 @@ phosg::JSON Variations::json() const {
 SetDataTableBase::SetDataTableBase(Version version) : version(version) {}
 
 Variations SetDataTableBase::generate_variations(
-    Episode episode, bool is_solo, shared_ptr<RandomGenerator> rand_crypt) const {
+    Episode episode, bool is_solo, std::shared_ptr<RandomGenerator> rand_crypt) const {
   Variations ret;
   for (size_t floor = 0; floor < ret.entries.size(); floor++) {
     auto& e = ret.entries[floor];
@@ -54,9 +52,9 @@ Variations SetDataTableBase::generate_variations(
   return ret;
 }
 
-vector<string> SetDataTableBase::map_filenames_for_variations(
+std::vector<std::string> SetDataTableBase::map_filenames_for_variations(
     Episode episode, GameMode mode, const Variations& variations, FilenameType type) const {
-  vector<string> ret;
+  std::vector<std::string> ret;
   for (uint8_t floor = 0; floor < 0x10; floor++) {
     const auto& e = variations.entries[floor];
     ret.emplace_back(this->map_filename_for_variation(episode, mode, floor, e.layout, e.entities, type));
@@ -69,15 +67,15 @@ vector<string> SetDataTableBase::map_filenames_for_variations(
 
 std::array<uint8_t, 0x12> SetDataTableBase::default_floor_to_area(Version version, Episode episode) {
   // For some inscrutable reason, Pioneer 2's area number in Episode 4 is discontiguous with all the rest. Why, Sega??
-  static const array<uint8_t, 0x12> areas_ep1 = {
+  static const std::array<uint8_t, 0x12> areas_ep1 = {
       0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11};
-  static const array<uint8_t, 0x12> areas_ep2_gc_nte = {
+  static const std::array<uint8_t, 0x12> areas_ep2_gc_nte = {
       0x00, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0xFF, 0xFF};
-  static const array<uint8_t, 0x12> areas_ep2 = {
+  static const std::array<uint8_t, 0x12> areas_ep2 = {
       0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23};
-  static const array<uint8_t, 0x12> areas_ep3 = {
+  static const std::array<uint8_t, 0x12> areas_ep3 = {
       0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF};
-  static const array<uint8_t, 0x12> areas_ep4 = {
+  static const std::array<uint8_t, 0x12> areas_ep4 = {
       0x2D, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   switch (episode) {
     case Episode::EP1:
@@ -89,7 +87,7 @@ std::array<uint8_t, 0x12> SetDataTableBase::default_floor_to_area(Version versio
     case Episode::EP4:
       return areas_ep4;
     default:
-      throw logic_error("incorrect episode");
+      throw std::logic_error("incorrect episode");
   }
 }
 
@@ -97,7 +95,7 @@ std::array<uint8_t, 0x12> SetDataTableBase::default_floor_to_area(Episode episod
   return this->default_floor_to_area(this->version, episode);
 }
 
-SetDataTable::SetDataTable(Version version, const string& data) : SetDataTableBase(version) {
+SetDataTable::SetDataTable(Version version, const std::string& data) : SetDataTableBase(version) {
   if (is_big_endian(this->version)) {
     this->load_table_t<true>(data);
   } else {
@@ -106,13 +104,13 @@ SetDataTable::SetDataTable(Version version, const string& data) : SetDataTableBa
 }
 
 template <bool BE>
-void SetDataTable::load_table_t(const string& data) {
+void SetDataTable::load_table_t(const std::string& data) {
   using FooterT = RELFileFooterT<BE>;
 
   phosg::StringReader r(data);
 
   if (r.size() < sizeof(FooterT)) {
-    throw runtime_error("set data table is too small");
+    throw std::runtime_error("set data table is too small");
   }
   auto& footer = r.pget<FooterT>(r.size() - sizeof(FooterT));
 
@@ -156,7 +154,7 @@ Variations::Entry SetDataTable::num_free_play_variations_for_floor(Episode episo
   if (area == 0xFF) {
     return Variations::Entry{.layout = 1, .entities = 1};
   }
-  static const array<uint32_t, 0x2F * 2> counts_on = {
+  static const std::array<uint32_t, 0x2F * 2> counts_on = {
       // Episode 1 (00-11)
       // P2 -F1-, -F2-, -C1-, -C2-, -C3-, -M1-, -M2-, -R1-, -R2-, -R3-, DRGN, DRL-, -VO-, -DF-, LOBBY, VS1-, VS2-,
       1, 1, 1, 5, 1, 5, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 10, 1, 1, 1, 1, 1,
@@ -166,7 +164,7 @@ Variations::Entry SetDataTable::num_free_play_variations_for_floor(Episode episo
       // Episode 4 (24-2E)
       // CE -CW-, -CS-, -CN-, -CI-, DES1, DES2, DES3, SMIL, -P2-, TEST
       1, 3, 1, 3, 1, 3, 1, 3, 1, 3, 3, 1, 1, 3, 3, 1, 1, 1, 1, 1, 1, 1};
-  static const array<uint32_t, 0x2F * 2> counts_off = {
+  static const std::array<uint32_t, 0x2F * 2> counts_off = {
       // Episode 1 (00-11)
       // P2 -F1-, -F2-, -C1-, -C2-, -C3-, -M1-, -M2-, -R1-, -R2-, -R3-, DRGN, DRL-, -VO-, -DF-, LOBBY, VS1-, VS2-,
       1, 1, 1, 3, 1, 3, 3, 1, 3, 1, 3, 1, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 10, 1, 1, 1, 1, 1,
@@ -180,14 +178,14 @@ Variations::Entry SetDataTable::num_free_play_variations_for_floor(Episode episo
   if (static_cast<size_t>(floor * 2 + 1) < data.size()) {
     auto available = this->num_available_variations_for_floor(episode, floor);
     return Variations::Entry{
-        .layout = min<uint32_t>(available.layout, data[area * 2]),
-        .entities = min<uint32_t>(available.entities, data[area * 2 + 1]),
+        .layout = std::min<uint32_t>(available.layout, data[area * 2]),
+        .entities = std::min<uint32_t>(available.entities, data[area * 2 + 1]),
     };
   }
-  throw runtime_error("invalid area");
+  throw std::runtime_error("invalid area");
 }
 
-string SetDataTable::map_filename_for_variation(
+std::string SetDataTable::map_filename_for_variation(
     Episode episode, GameMode mode, uint8_t floor, uint32_t layout, uint32_t entities, FilenameType type) const {
   uint8_t area = this->default_floor_to_area(episode).at(floor);
   if (area == 0xFF) {
@@ -200,7 +198,7 @@ string SetDataTable::map_filename_for_variation(
 
   const auto& entry = this->entries.at(area).at(layout).at(entities);
 
-  string filename;
+  std::string filename;
   switch (type) {
     case FilenameType::OBJECT_SETS:
       filename = entry.object_list_basename + "o";
@@ -212,7 +210,7 @@ string SetDataTable::map_filename_for_variation(
       filename = entry.enemy_and_event_list_basename;
       break;
     default:
-      throw logic_error("invalid map filename type");
+      throw std::logic_error("invalid map filename type");
   }
 
   bool is_events = (type == FilenameType::EVENTS);
@@ -230,14 +228,14 @@ string SetDataTable::map_filename_for_variation(
       filename += is_events ? "_d.evt" : "_d.dat";
       break;
     default:
-      throw logic_error("invalid game mode");
+      throw std::logic_error("invalid game mode");
   }
 
   return filename;
 }
 
-string SetDataTable::str() const {
-  vector<string> lines;
+std::string SetDataTable::str() const {
+  std::vector<std::string> lines;
   lines.emplace_back(std::format("FL/V1/V2 => ----------------------OBJECT -----------------ENEMY+EVENT -----------------------SETUP\n"));
   for (size_t a = 0; a < this->entries.size(); a++) {
     const auto& v1_v = this->entries[a];
@@ -255,19 +253,19 @@ string SetDataTable::str() const {
 
 struct AreaMapFileInfo {
   const char* name_token;
-  vector<uint32_t> variation1_values;
-  vector<uint32_t> variation2_values;
+  std::vector<uint32_t> variation1_values;
+  std::vector<uint32_t> variation2_values;
 
   AreaMapFileInfo(
       const char* name_token,
-      vector<uint32_t> variation1_values,
-      vector<uint32_t> variation2_values)
+      std::vector<uint32_t> variation1_values,
+      std::vector<uint32_t> variation2_values)
       : name_token(name_token),
         variation1_values(variation1_values),
         variation2_values(variation2_values) {}
 };
 
-const array<vector<vector<string>>, 0x12> SetDataTableDCNTE::NAMES = {{
+const std::array<std::vector<std::vector<std::string>>, 0x12> SetDataTableDCNTE::NAMES = {{
     /* 00 */ {{"map_city00_00"}},
     /* 01 */ {{"map_forest01_00", "map_forest01_01"}},
     /* 02 */ {{"map_forest02_00", "map_forest02_03"}},
@@ -302,10 +300,10 @@ Variations::Entry SetDataTableDCNTE::num_free_play_variations_for_floor(Episode 
   return this->num_available_variations_for_floor(episode, floor);
 }
 
-string SetDataTableDCNTE::map_filename_for_variation(
+std::string SetDataTableDCNTE::map_filename_for_variation(
     Episode, GameMode, uint8_t floor, uint32_t layout, uint32_t entities, FilenameType type) const {
   try {
-    string basename = this->NAMES.at(floor).at(layout).at(entities);
+    std::string basename = this->NAMES.at(floor).at(layout).at(entities);
     switch (type) {
       case FilenameType::ENEMY_SETS:
         basename += "e.dat";
@@ -317,15 +315,15 @@ string SetDataTableDCNTE::map_filename_for_variation(
         basename += ".evt";
         break;
       default:
-        throw logic_error("invalid map filename type");
+        throw std::logic_error("invalid map filename type");
     }
     return basename;
-  } catch (const out_of_range&) {
+  } catch (const std::out_of_range&) {
     return "";
   }
 }
 
-const array<vector<vector<string>>, 0x12> SetDataTableDC112000::NAMES = {{
+const std::array<std::vector<std::vector<std::string>>, 0x12> SetDataTableDC112000::NAMES = {{
     /* 00 */ {{"map_city00_00"}},
     /* 01 */ {{"map_forest01_00", "map_forest01_01", "map_forest01_02", "map_forest01_03", "map_forest01_04"}},
     /* 02 */ {{"map_forest02_00", "map_forest02_01", "map_forest02_02", "map_forest02_03", "map_forest02_04"}},
@@ -360,10 +358,10 @@ Variations::Entry SetDataTableDC112000::num_free_play_variations_for_floor(Episo
   return this->num_available_variations_for_floor(episode, floor);
 }
 
-string SetDataTableDC112000::map_filename_for_variation(
+std::string SetDataTableDC112000::map_filename_for_variation(
     Episode, GameMode, uint8_t floor, uint32_t layout, uint32_t entities, FilenameType type) const {
   try {
-    string basename = this->NAMES.at(floor).at(layout).at(entities);
+    std::string basename = this->NAMES.at(floor).at(layout).at(entities);
     switch (type) {
       case FilenameType::ENEMY_SETS:
         basename += "e.dat";
@@ -375,15 +373,15 @@ string SetDataTableDC112000::map_filename_for_variation(
         basename += ".evt";
         break;
       default:
-        throw logic_error("invalid map filename type");
+        throw std::logic_error("invalid map filename type");
     }
     return basename;
-  } catch (const out_of_range&) {
+  } catch (const std::out_of_range&) {
     return "";
   }
 }
 
-static const vector<AreaMapFileInfo> map_file_info_dc_nte = {
+static const std::vector<AreaMapFileInfo> map_file_info_dc_nte = {
     {"city00", {}, {0}},
     {"forest01", {}, {0, 1}},
     {"forest02", {}, {0, 3}},
@@ -402,7 +400,7 @@ static const vector<AreaMapFileInfo> map_file_info_dc_nte = {
     {"map_visuallobby", {}, {}},
 };
 
-static const vector<vector<AreaMapFileInfo>> map_file_info_gc_nte = {
+static const std::vector<std::vector<AreaMapFileInfo>> map_file_info_gc_nte = {
     {
         // Episode 1 Non-solo
         {"city00", {}, {0}},
@@ -444,7 +442,7 @@ static const vector<vector<AreaMapFileInfo>> map_file_info_gc_nte = {
 };
 
 // These are indexed as [episode][is_solo][floor], where episode is 0-2
-static const vector<vector<vector<AreaMapFileInfo>>> map_file_info = {
+static const std::vector<std::vector<std::vector<AreaMapFileInfo>>> map_file_info = {
     {
         // Episode 1
         {
@@ -601,7 +599,7 @@ static constexpr uint16_t F_V4 = 0x2000;
 static constexpr uint16_t F_GC = 0x0F00;
 static constexpr uint16_t F_EP3 = 0x0C00;
 
-static const vector<DATEntityDefinition> dat_object_definitions({
+static const std::vector<DATEntityDefinition> dat_object_definitions({
     // This is newserv's canonical list of map object types.
 
     // Objects defined in map files take arguments in the form of an ObjectSetEntry structure (see Map.hh). Most
@@ -614,7 +612,7 @@ static const vector<DATEntityDefinition> dat_object_definitions({
     //   param4 = source type:
     //     0 = use this set when advancing from a lower floor
     //     1 = use this set when returning from a higher floor
-    //     anything else = set is unused (TODO: but maybe used by TObjAreaWarpQuest?)
+    //     any other positive number = set is unused by default, but may be used by TObjAreaWarpQuest
     {0x0000, F_V0_V4, 0x00007FFFFFFFFFFF, "TObjPlayerSet"},
     {0x0000, F_EP3, 0x0000000000008001, "TObjPlayerSet"},
 
@@ -858,12 +856,18 @@ static const vector<DATEntityDefinition> dat_object_definitions({
     //   param6 = number of frames between trigger and explosion
     {0x000D, F_V0_V4, 0x00005FFC3FFB07FE, "TOMineIcon04"},
 
-    // Room ID. Params:
-    //   param1 = radius (actual radius = (param1 * 10) + 30)
-    //   param2 = next room ID
-    //   param3 = previous room ID
-    //   param5 = angle
-    //   param6 = TODO (debug info calls this "BLOCK ID"; seems it only matters whether this is 0x10000 or not)
+    // Room ID. This object sets each player's room ID to one of two different values when they're within the effective
+    // radius. Params:
+    //   param1 = radius delta (actual radius = param1 * 10)
+    //   param2 = room ID to use if player is facing the same direction as this object (as determined by the dot
+    //     product of the vector from this object to the player, and the vector (0, 0, -1) rotated by the angle in
+    //     param5; if the dot product is positive, param2 is used)
+    //   param3 = room ID to use if the dot product described above is zero or negative
+    //   param5 = angle (see param2)
+    //   param6 = on v2 and before, this is ignored; on v3 and later, if param6 is equal to 0x00010000, only the
+    //     player's room_id field is set, and player flag 0x02000000 is set on the player; if not equal to 0x00010000,
+    //     then both room_id and room_id_in_custom_area (if in a non-rearrangeable area, like Pioneer 2 or Forest) are
+    //     set and no game flag is set (TODO: What are the visible behavior differences due to this parameter?)
     {0x000E, F_V0_V4, 0x00005FFFFFF83FFE, "TObjRoomId"},
 
     // Sensor of some kind (TODO). Params:
@@ -957,7 +961,9 @@ static const vector<DATEntityDefinition> dat_object_definitions({
 
     // Quest floor warp. This appears similar to TObjAreaWarpForest except that the object is not destroyed immediately
     // if it's blue and the game is Challenge mode. Params:
-    //   param1 = player set ID (TODO: what does this do? Seems it does nothing unless it's >= 2; see TObjPlayerSet)
+    //   param1 = player set ID (if this is >= 2, specifies which set of TObjPlayerSets to use on the destination
+    //     floor, which overrides the default behavior of 0/1 depending on the source and destination floor numbers;
+    //     see TObjPlayerSet for details)
     //   param4 = destination floor
     //   param6 = color (0 = blue, 1 = red)
     {0x001B, F_V1_V4, 0x00005000000078FE, "TObjAreaWarpQuest"},
@@ -1215,27 +1221,27 @@ static const vector<DATEntityDefinition> dat_object_definitions({
     // game's mode and quest flags. A different set of flags is checked on BB than on other versions, presumably since
     // government quests are used to unlock areas instead of offline story progression. On later versions of BB, all
     // floors are available by default; this table reflects the behavior before that change.
-    // Required flag for mode:   Online/multi   Offline       BB (all modes)
+    // Required flag for mode:    Online/multi   Offline       BB (all modes)
     //   Episode 1:
-    //     Forest 1:             Always open    Always open   Always open
-    //     Cave 1:               0x17           0x18          0x1F9
-    //     Mine 1:               0x20           0x21          0x201
-    //     Ruins 1:              0x30           0x2A          0x207
+    //     Forest 1               Always open    Always open   Always open
+    //     Cave 1                 0x17           0x18          0x1F9
+    //     Mine 1                 0x20           0x21          0x201
+    //     Ruins 1                0x30           0x2A          0x207
     //   Episode 2:
-    //     VR Temple Alpha:      Always open    Always open   Always open
-    //     VR Spaceship Alpha:   0x4C           0x4D          0x21B
-    //     CCA:                  0x4F           0x50          0x225
-    //     Seabed Upper:         0x52           0x53          0x22F
+    //     VR Temple Alpha        Always open    Always open   Always open
+    //     VR Spaceship Alpha     0x4C           0x4D          0x21B
+    //     CCA                    0x4F           0x50          0x225
+    //     Seabed Upper           0x52           0x53          0x22F
     //   Episode 4:
-    //     Crater East                                        Always open
-    //     Crater West                                        0x2BD
-    //     Crater South                                       0x2BE
-    //     Crater North                                       0x2BF
-    //     Crater Interior                                    0x2C0
-    //     Subterranean Desert 1                              0x2C1
+    //     Crater East                                         Always open
+    //     Crater West                                         0x2BD
+    //     Crater South                                        0x2BE
+    //     Crater North                                        0x2BF
+    //     Crater Interior                                     0x2C0
+    //     Subterranean Desert 1                               0x2C1
     // Params:
     //   param5 = main warp type:
-    //     00 = Episode 1 / Episode 4
+    //     00 = All levels
     //     01 = Ep2 VR Temple / VR Spaceship (CCA and Seabed not available)
     //     02 = Ep2 CCA (VR Temple and Spaceship not available)
     {0x0043, F_V0_V4, 0x0000600000040001, "TObjCityMainWarp"},
@@ -1365,13 +1371,13 @@ static const vector<DATEntityDefinition> dat_object_definitions({
 
     // Item box. Params:
     //   param1 = if positive, box is specialized to drop a specific item or type of item; if zero or negative, box
-    //     drops any common item or none at all (and param3-6 are all ignored)
-    //   param3 = if zero, then only data1[0-1] are used and the rest of the ItemData is cleared, then bonuses, grinds,
-    //     etc. are applied to the item; if nonzero, the item is not randomized at all and drops exactly as specified
-    //     in param4-6
+    //     drops any item (including box rares for the current floor), or nothing at all, and param3-6 are all ignored
+    //   param3 = if zero, then only data1[0-1] (the high 2 bytes of param4) are used and the rest of the ItemData is
+    //     cleared, then the usual randomized bonuses, grinds, etc. are applied to the item; if nonzero, the item is
+    //     not randomized at all and drops exactly as specified in param4-6
     //   param4-6 = item definition (see below)
-    // Not all fields in ItemData can be specified in the item definition here. The field order here does not match the
-    // field order in ItemData! The item definition is encoded here as follows:
+    // Not all fields in ItemData can be specified in the item definition for this object. The field order here does
+    // not match the field order in ItemData! The item definition is encoded as follows:
     //               -param4-  -param5-  -param6-
     //   Weapon:     00wwZZSS  GG--PPQQ  PPQQPPQQ
     //   Armor:      0100ZZTT  00VV----  --------
@@ -2139,6 +2145,8 @@ static const vector<DATEntityDefinition> dat_object_definitions({
 
     // Small cryotube. Params:
     //   param4 = model number (clamped to [0, 3])
+    //   param5 high word = number of consecutive switch flags (only used if param4 = 3)
+    //   param5 low word = first switch flag number (clamped to [0, 0x100 - num flags]; only used if param4 = 3)
     {0x0223, F_V3_V4, 0x0000400830000000, "TObjSeabedSuiso_CH"},
 
     // Breakable glass wall. Params:
@@ -2174,7 +2182,7 @@ static const vector<DATEntityDefinition> dat_object_definitions({
     {0x0240, F_V3_V4, 0x0000400040000000, "TObjParticle"},
 
     // Teleporter after Barba Ray. This object behaves exactly the same as 0x0002 (TObjAreaWarpForest), except it's
-    // invisible until the boss is defeated.
+    // invisible until the platform has docked after the boss is defeated.
     {0x0280, F_V3_V4, 0x0000400100000000, "__BARBA_RAY_TELEPORTER__"},
 
     // TODO: Describe this object. There appear to be no parameters.
@@ -2482,7 +2490,7 @@ static const vector<DATEntityDefinition> dat_object_definitions({
     {0x03C1, F_V4, 0x0000500000000000, "__EP4_BOSS_ROCK_SPAWNER__"},
 });
 
-static const vector<DATEntityDefinition> dat_enemy_definitions({
+static const std::vector<DATEntityDefinition> dat_enemy_definitions({
     // This is newserv's canonical definition of map enemy and NPC types.
 
     // Enemies and NPCs take a similar arguments structure as objects: objects use ObjectSetEntry, enemies use
@@ -2498,7 +2506,7 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     // - TObjEneRe7Berura (param1, param2)
     // - TBoss1Dragon (param1, param2)
     // - TBoss5Gryphon (param1, param2)
-    // - TBoss2DeRolLe (param1, param2)
+    // - TBoss2DeRolLe (param1, param2, param3)
     // - TBoss8Dragon (param1, param2)
     // - TObjEneBm5GibonU (param4, param5; these params also have non-debug meanings)
     // - TObjEneMorfos (oaram1, param2; these params also have non-debug meanings)
@@ -2813,7 +2821,8 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     //   param2 = if less than 1, this is a Savage Wolf; otherwise it's a Barbarous Wolf
     {0x0043, F_V0_V4, 0x0000000000600006, "TObjEneBm5Wolf"},
 
-    // Booma, Gobooma, or Gigobooma. Params:
+    // Booma, Gobooma, or Gigobooma. The activation radius is fixed and cannot be changed: 50 for Hunters, 100 for
+    // Rangers and Forces; the deactivation radius is 100 for Hunters and 150 for Rangers and Forces. Params:
     //   param1 = TODO (fraction of max HP; see TObjEnemyV8048ee80_v5A)
     //   param2 = idle walk radius (when there's no target, it will walk around its spawn location within this radius;
     //     if this is zero, it stands still instead)
@@ -2881,7 +2890,7 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
 
     // Delsaber. Params:
     //   param1 = jump distance delta (value used is param1 + 100)
-    //   param2 = prejudice flag (these correspond to the bits in PlayerVisualConfig::class_flags):
+    //   param2 = prejudice flag (these correspond to the bits in PlayerVisualConfigV123T::class_flags):
     //     0 = males
     //     1 = females
     //     2 = humans
@@ -2891,8 +2900,9 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     //     6 = rangers
     //     7 = forces
     //     8 = no prejudice
-    // If any player is within 30 units of a Delsaber, it will target that player. Otherwise, the Delsaber will target
-    // the nearest player that matches its prejudice flag; if no player matches, it will target the nearest player.
+    // By default, the Delsaber will target the nearest player that matches its prejudice flag. If no players match the
+    // flag or there is any player less than 30 units away from the Delsaber, then the Delsaber will target the nearest
+    // player overall and ignore its prejudice flag.
     {0x00A0, F_V0_V4, 0x0000000000630300, "TObjEneSaver"},
 
     // Chaos Sorceror. There appear to be no parameters.
@@ -2907,7 +2917,7 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
 
     // Dark Gunner control enemy. This enemy doesn't actually exist in-game; it only has logic for choosing a Dark
     // Gunner from its group to be the leader, and then changing this leader periodically. Params:
-    //   param1 = group number (see above)
+    //   param1 = group number (see TObjEneDarkGunner above)
     {0x00A3, F_V0_V4, 0x0000000000000600, "TObjEneDarkGunCenter"},
 
     // Dark Bringer. There appear to be no parameters.
@@ -2920,16 +2930,21 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     //   param6 = type (0 = Dimenian, 1 = La Dimenian, 2 = So Dimenian)
     {0x00A6, F_V0_V4, 0x0000000000180700, "TObjEneDimedian"},
 
-    // Bulclaw. There appear to be no parameters.
+    // Bulclaw. There appear to be no parameters. It appears that param6 may have been used to select a different model
+    // or set of movement data in a previous version, but in PSO GC at least, both movement datas are the same (1F).
     {0x00A7, F_V0_V4, 0x0000000000000700, "TObjEneBalClawBody"},
 
     // Claw. There appear to be no parameters.
     {0x00A8, F_V0_V4, 0x0000000000000700, "TObjEneBalClawClaw"},
 
-    // Early bosses. None of these take any parameters.
+    // Dragon-like bosses. None of these take any parameters.
     {0x00C0, F_V0_V4, 0x0000000000000800, "TBoss1Dragon"}, // Dragon
     {0x00C0, F_V3_V4, 0x0000000040000000, "TBoss5Gryphon"}, // Gal Gryphon
+    {0x00CC, F_V3_V4, 0x0000000200000000, "TBoss8Dragon"}, // Gol Dragon
+
+    // De Rol Le-like bosses. Neither of these take any parameters.
     {0x00C1, F_V0_V4, 0x0000000000001000, "TBoss2DeRolLe"}, // De Rol Le
+    {0x00CB, F_V3_V4, 0x0000000100000000, "TBoss7DeRolLeC"}, // Barba Ray
 
     // Vol Opt and various pieces thereof. Generally only TBoss3Volopt and TBoss3VoloptP02 should be specified in map
     // files; the other enemies are automatically created by TBoss3Volopt. None of these take any parameters.
@@ -2940,11 +2955,9 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     {0x00C6, F_V0_V4, 0x0000000000002000, "TBoss3VoloptMonitor"}, // Monitor (x24; 4 for each wall)
     {0x00C7, F_V0_V4, 0x0000000000002000, "TBoss3VoloptHiraisin"}, // Pillar (lightning rod)
 
-    // More bosses. None of these take any parameters.
+    // Dark Falz-like bosses. Neither of these take any parameters.
     {0x00C8, F_V0_V4, 0x0000000000004000, "TBoss4DarkFalz"}, // Dark Falz
     {0x00CA, F_V3_V4, 0x0000000080000000, "TBoss6PlotFalz"}, // Olga Flow
-    {0x00CB, F_V3_V4, 0x0000000100000000, "TBoss7DeRolLeC"}, // Barba Ray
-    {0x00CC, F_V3_V4, 0x0000000200000000, "TBoss8Dragon"}, // Gol Dragon
 
     // Sinow Berill or Sinow Spigell. Params:
     //   param1 = spawn type:
@@ -2986,7 +2999,7 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     //     1 = Mericus
     //     2 = Merikle
     //     anything else = Mericarand (see below)
-    // If this is a Mericarand, it is "randomly" chosen to be one of the three subtypes at construction time. On v1-v3,
+    // If this is a Mericarand, it is "randomly" chosen to be one of the three subtypes at construction time. On v3,
     // the client chooses randomly (but consistently, based on the entity ID) between Mericarol (80%), Mericus (10%) or
     // Merikle (10%). On v4, if the entity ID isn't marked rare by the server, the Mericarand becomes a Mericarol;
     // otherwise, it becomes a Mericus if its entity ID is even or a Merikle if it's odd.
@@ -3118,14 +3131,9 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     {0x0115, F_V4, 0x000041F000000000, "__BOOTA_FAMILY__"},
 
     // Dorphon. Params:
-    //   param1 = TODO (value is param1 + 0.3)
-    //   param2 = TODO (value is param2 + 0.3)
-    //   param3 = TODO (value is param3 + 30, clamped below to 10)
-    //   param4 = TODO (value is param4 + 0.3)
-    //   param5 = TODO (value is param5 + 0.05)
+    //   param1-5 = same as TObjEneDellBiter
     //   param6 = flags (bit field):
     //     0001 = always rare (Dorphon Eclair)
-    // TODO: The values above make it look like param1-5 are the same as for TObjEneDellBiter. Verify if this is true.
     {0x0116, F_V4, 0x000041F000000000, "__DORPHON__"},
 
     // Goran / Pyro Goran / Goran Detonator. Same parameters as TObjEneBeast, but also:
@@ -3141,9 +3149,9 @@ static const vector<DATEntityDefinition> dat_enemy_definitions({
     {0x0119, F_V4, 0x0000100000000000, "__EPISODE_4_BOSS__"},
 });
 
-static string name_for_entity_type(
-    unordered_multimap<uint16_t, const DATEntityDefinition*>& index,
-    const vector<DATEntityDefinition>& defs,
+static std::string name_for_entity_type(
+    std::unordered_multimap<uint16_t, const DATEntityDefinition*>& index,
+    const std::vector<DATEntityDefinition>& defs,
     uint16_t type,
     Version version,
     uint8_t area) {
@@ -3169,7 +3177,7 @@ static string name_for_entity_type(
 
   // When matching only by type or by (type, version), we can expect multiple matches
   if (version != Version::UNKNOWN) {
-    string ret;
+    std::string ret;
     for (auto [it, end_it] = its; it != end_it; it++) {
       const auto* def = it->second;
       if (def->version_flags & version_mask) {
@@ -3184,7 +3192,7 @@ static string name_for_entity_type(
     }
   }
 
-  string ret;
+  std::string ret;
   for (auto [it, end_it] = its; it != end_it; it++) {
     const auto* def = it->second;
     if (!ret.empty()) {
@@ -3196,20 +3204,19 @@ static string name_for_entity_type(
   return ret.empty() ? std::format("__UNKNOWN_ENTITY_{:04X}__", type) : ret;
 }
 
-string MapFile::name_for_object_type(uint16_t type, Version version, uint8_t area) {
-  static unordered_multimap<uint16_t, const DATEntityDefinition*> index;
+std::string MapFile::name_for_object_type(uint16_t type, Version version, uint8_t area) {
+  static std::unordered_multimap<uint16_t, const DATEntityDefinition*> index;
   return name_for_entity_type(index, dat_object_definitions, type, version, area);
 }
-string MapFile::name_for_enemy_type(uint16_t type, Version version, uint8_t area) {
-  static unordered_multimap<uint16_t, const DATEntityDefinition*> index;
+std::string MapFile::name_for_enemy_type(uint16_t type, Version version, uint8_t area) {
+  static std::unordered_multimap<uint16_t, const DATEntityDefinition*> index;
   return name_for_entity_type(index, dat_enemy_definitions, type, version, area);
 }
 
-string MapFile::ObjectSetEntry::str(Version version, uint8_t area) const {
-  string name_str = MapFile::name_for_object_type(this->base_type, version, area);
+std::string MapFile::ObjectSetEntry::str(Version version, uint8_t area) const {
   return std::format("[ObjectSetEntry type={:04X} \"{}\" floor={:04X} group={:04X} room={:04X} a3={:04X} x={:g} y={:g} z={:g} x_angle={:08X} y_angle={:08X} z_angle={:08X} params=[{:g} {:g} {:g} {:08X} {:08X} {:08X}]]",
       this->base_type,
-      name_str,
+      MapFile::name_for_object_type(this->base_type, version, area),
       this->floor,
       this->group,
       this->room,
@@ -3244,11 +3251,10 @@ uint64_t MapFile::ObjectSetEntry::semantic_hash(uint8_t floor) const {
   return ret;
 }
 
-string MapFile::EnemySetEntry::str(Version version, uint8_t area) const {
-  auto type_name = MapFile::name_for_enemy_type(this->base_type, version, area);
+std::string MapFile::EnemySetEntry::str(Version version, uint8_t area) const {
   return std::format("[EnemySetEntry type={:04X} \"{}\" num_children={:04X} floor={:04X} room={:04X} wave_number={:04X} wave_number2={:04X} a1={:04X} x={:g} y={:g} z={:g} x_angle={:08X} y_angle={:08X} z_angle={:08X} params=[{:g} {:g} {:g} {:g} {:g} {:04X} {:04X}]]",
       this->base_type,
-      type_name,
+      MapFile::name_for_enemy_type(this->base_type, version, area),
       this->num_children,
       this->floor,
       this->room,
@@ -3289,7 +3295,7 @@ uint64_t MapFile::EnemySetEntry::semantic_hash(uint8_t floor) const {
   return ret;
 }
 
-string MapFile::Event1Entry::str() const {
+std::string MapFile::Event1Entry::str() const {
   return std::format("[Event1Entry event_id={:08X} flags={:04X} event_type={:04X} room={:04X} wave_number={:04X} delay={:08X} action_stream_offset={:08X}]",
       this->event_id,
       this->flags,
@@ -3308,7 +3314,7 @@ uint64_t MapFile::Event1Entry::semantic_hash(uint8_t floor) const {
   return ret;
 }
 
-string MapFile::Event2Entry::str() const {
+std::string MapFile::Event2Entry::str() const {
   return std::format("[Event2Entry event_id={:08X} flags={:04X} event_type={:04X} room={:04X} wave_number={:04X} min_delay={:08X} max_delay={:08X} min_enemies={:02X} max_enemies={:02X} max_waves={:04X} action_stream_offset={:08X}]",
       this->event_id,
       this->flags,
@@ -3323,16 +3329,16 @@ string MapFile::Event2Entry::str() const {
       this->action_stream_offset);
 }
 
-string MapFile::RandomEnemyLocationSection::str() const {
-  string count_warning_str;
+std::string MapFile::RandomEnemyRoom::str() const {
+  const char* count_warning_str = "";
   if (count > 0x20) {
     count_warning_str = " /* warning: count is too large */";
   }
-  return std::format("[RandomEnemyLocationSection room={:04X} count={:04X}{} offset={:08X} index={}]",
-      this->room, this->count, count_warning_str, this->offset, this->offset / sizeof(RandomEnemyLocation));
+  return std::format("[RandomEnemyRoom room={:04X} count={:04X}{} offset={:08X}(index={:04X})]",
+      this->room_id, this->count, count_warning_str, this->offset, this->offset / sizeof(RandomEnemyRoom));
 }
 
-string MapFile::RandomEnemyLocation::str() const {
+std::string MapFile::RandomEnemyLocation::str() const {
   return std::format("[RandomEnemyLocation x={:g} y={:g} z={:g} x_angle={:08X} y_angle={:08X} z_angle={:08X} a9={:04X} a10={:04X}]",
       this->pos.x,
       this->pos.y,
@@ -3344,7 +3350,7 @@ string MapFile::RandomEnemyLocation::str() const {
       this->unknown_a10);
 }
 
-string MapFile::RandomEnemyDefinition::str() const {
+std::string MapFile::RandomEnemyDefinition::str() const {
   return std::format("[RandomEnemyDefinition params=[{:g} {:g} {:g} {:g} {:g} {:04X} {:04X}] entry_index={:08X} min_children={:04X} max_children={:04X}]",
       this->param1,
       this->param2,
@@ -3358,8 +3364,8 @@ string MapFile::RandomEnemyDefinition::str() const {
       this->max_children);
 }
 
-string MapFile::RandomEnemyWeight::str() const {
-  string base_type_index_str;
+std::string MapFile::RandomEnemyWeight::str() const {
+  std::string base_type_index_str;
   try {
     base_type_index_str = std::format("(->{:04X})", MapFile::RAND_ENEMY_BASE_TYPES.at(this->base_type_index));
   } catch (const std::out_of_range&) {
@@ -3387,7 +3393,7 @@ size_t MapFile::RandomState::rand_int_biased(size_t min_v, size_t max_v) {
   float max_f = static_cast<float>(max_v + 1);
   uint32_t crypt_v = this->random.next();
   float det_f = static_cast<float>(crypt_v);
-  return max<size_t>(floorf((max_f * det_f) / UINT32_MAX_AS_FLOAT), min_v);
+  return std::max<size_t>(floorf((max_f * det_f) / UINT32_MAX_AS_FLOAT), min_v);
 }
 
 uint32_t MapFile::RandomState::next_location_index() {
@@ -3398,26 +3404,26 @@ uint32_t MapFile::RandomState::next_location_index() {
 }
 
 void MapFile::RandomState::generate_shuffled_location_table(
-    const RandomEnemyLocationsHeader& header, phosg::StringReader r, uint16_t room) {
+    const RandomEnemyLocationsHeader& header, phosg::StringReader r, uint16_t room_id) {
   if (header.num_rooms == 0) {
-    throw runtime_error("no locations defined");
+    throw std::runtime_error("no locations defined");
   }
 
-  phosg::StringReader rooms_r = r.sub(header.room_table_offset, header.num_rooms * sizeof(RandomEnemyLocationSection));
+  phosg::StringReader rooms_r = r.sub(header.room_table_offset, header.num_rooms * sizeof(RandomEnemyRoom));
 
   size_t bs_min = 0;
   size_t bs_max = header.num_rooms - 1;
   do {
     size_t bs_mid = (bs_min + bs_max) / 2;
-    if (rooms_r.pget<RandomEnemyLocationSection>(bs_mid * sizeof(RandomEnemyLocationSection)).room < room) {
+    if (rooms_r.pget<RandomEnemyRoom>(bs_mid * sizeof(RandomEnemyRoom)).room_id < room_id) {
       bs_min = bs_mid + 1;
     } else {
       bs_max = bs_mid;
     }
   } while (bs_min < bs_max);
 
-  const auto& sec = rooms_r.pget<RandomEnemyLocationSection>(bs_min * sizeof(RandomEnemyLocationSection));
-  if (room != sec.room) {
+  const auto& sec = rooms_r.pget<RandomEnemyRoom>(bs_min * sizeof(RandomEnemyRoom));
+  if (room_id != sec.room_id) {
     return;
   }
 
@@ -3439,12 +3445,56 @@ void MapFile::RandomState::generate_shuffled_location_table(
   }
 }
 
-const array<uint32_t, 41> MapFile::RAND_ENEMY_BASE_TYPES = {
-    0x44, 0x43, 0x41, 0x42, 0x40, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0xA0, 0xA1,
-    0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE, 0xDF,
-    0xE0, 0xE0, 0xE1};
+const std::array<uint32_t, 41> MapFile::RAND_ENEMY_BASE_TYPES = {
+    0x0044, /* TObjEneBeast */
+    0x0043, /* TObjEneBm5Wolf */
+    0x0041, /* TObjEneLappy */
+    0x0042, /* TObjEneBm3FlyNest */
+    0x0040, /* TObjEneMoja */
+    0x0060, /* TObjGrass */
+    0x0061, /* TObjEneRe2Flower */
+    0x0062, /* TObjEneNanoDrago */
+    0x0063, /* TObjEneShark */
+    0x0064, /* TObjEneSlime */
+    0x0065, /* TObjEnePanarms */
+    0x0080, /* TObjEneDubchik */
+    0x0081, /* TObjEneGyaranzo */
+    0x0082, /* TObjEneMe3ShinowaReal */
+    0x0083, /* TObjEneMe1Canadin */
+    0x0084, /* TObjEneMe1CanadinLeader */
+    0x0085, /* TOCtrlDubchik */
+    0x00A0, /* TObjEneSaver */
+    0x00A1, /* TObjEneRe4Sorcerer */
+    0x00A2, /* TObjEneDarkGunner */
+    0x00A3, /* TObjEneDarkGunCenter */
+    0x00A4, /* TObjEneDf2Bringer */
+    0x00A5, /* TObjEneRe7Berura */
+    0x00A6, /* TObjEneDimedian */
+    0x00A7, /* TObjEneBalClawBody */
+    0x00A8, /* TObjEneBalClawClaw */
+    0x00D4, /* TObjEneMe3StelthReal */
+    0x00D5, /* TObjEneMerillLia */
+    0x00D6, /* TObjEneBm9Mericarol */
+    0x00D7, /* TObjEneBm5GibonU */
+    0x00D8, /* TObjEneGibbles */
+    0x00D9, /* TObjEneMe1Gee */
+    0x00DA, /* TObjEneMe1GiGue */
+    0x00DB, /* TObjEneDelDepth */
+    0x00DC, /* TObjEneDellBiter */
+    0x00DD, /* TObjEneDolmOlm */
+    0x00DE, /* TObjEneMorfos */
+    0x00DF, /* TObjEneRecobox */
+    // This is not a bug; 0x00E0 really does appear twice in this list on the client.
+    0x00E0, /* TObjEneMe3SinowZoaReal/TObjEneEpsilonBody (depending on area) */
+    0x00E0, /* TObjEneMe3SinowZoaReal/TObjEneEpsilonBody (depending on area) */
+    0x00E1, /* TObjEneIllGill */
+};
 
 MapFile::MapFile(std::shared_ptr<const std::string> data) {
+  for (uint8_t z = 0; z < this->sections_for_floor.size(); z++) {
+    this->sections_for_floor[z].floor = z;
+  }
+
   this->quest_data = data;
   this->link_data(data);
 
@@ -3456,11 +3506,11 @@ MapFile::MapFile(std::shared_ptr<const std::string> data) {
       break;
     }
     if (header.section_size < sizeof(header)) {
-      throw runtime_error(std::format("quest entities list has invalid section header at offset 0x{:X}", r.where() - sizeof(header)));
+      throw std::runtime_error(std::format("quest entities list has invalid section header at offset 0x{:X}", r.where() - sizeof(header)));
     }
 
     if (header.floor >= this->sections_for_floor.size()) {
-      throw runtime_error("section floor number too large");
+      throw std::runtime_error("section floor number too large");
     }
 
     size_t section_offset = r.where();
@@ -3481,7 +3531,7 @@ MapFile::MapFile(std::shared_ptr<const std::string> data) {
         this->set_random_enemy_definitions_for_floor(header.floor, section_offset, r.getv(header.data_size), header.data_size);
         break;
       default:
-        throw runtime_error("invalid section type");
+        throw std::runtime_error("invalid section type");
     }
   }
   this->compute_floor_start_indexes();
@@ -3492,6 +3542,9 @@ MapFile::MapFile(
     std::shared_ptr<const std::string> objects_data,
     std::shared_ptr<const std::string> enemies_data,
     std::shared_ptr<const std::string> events_data) {
+  for (uint8_t z = 0; z < this->sections_for_floor.size(); z++) {
+    this->sections_for_floor[z].floor = z;
+  }
   if (objects_data) {
     this->link_data(objects_data);
     this->set_object_sets_for_floor(floor, 0, objects_data->data(), objects_data->size());
@@ -3508,9 +3561,13 @@ MapFile::MapFile(
 }
 
 MapFile::MapFile(uint32_t generated_with_random_seed)
-    : generated_with_random_seed(generated_with_random_seed) {}
+    : generated_with_random_seed(generated_with_random_seed) {
+  for (uint8_t z = 0; z < this->sections_for_floor.size(); z++) {
+    this->sections_for_floor[z].floor = z;
+  }
+}
 
-void MapFile::link_data(std::shared_ptr<const string> data) {
+void MapFile::link_data(std::shared_ptr<const std::string> data) {
   if (this->linked_data.emplace(data).second) {
     this->linked_data_hash ^= phosg::fnv1a64(*data);
   }
@@ -3519,10 +3576,10 @@ void MapFile::link_data(std::shared_ptr<const string> data) {
 void MapFile::set_object_sets_for_floor(uint8_t floor, size_t file_offset, const void* data, size_t size) {
   auto& floor_sections = this->sections_for_floor.at(floor);
   if (floor_sections.object_sets) {
-    throw runtime_error("multiple object sets sections for same floor");
+    throw std::runtime_error("multiple object sets sections for same floor");
   }
   if (size % sizeof(ObjectSetEntry)) {
-    throw runtime_error("object sets section size is not a multiple of entry size");
+    throw std::runtime_error("object sets section size is not a multiple of entry size");
   }
   floor_sections.object_sets = reinterpret_cast<const ObjectSetEntry*>(data);
   floor_sections.object_set_count = size / sizeof(ObjectSetEntry);
@@ -3533,13 +3590,13 @@ void MapFile::set_object_sets_for_floor(uint8_t floor, size_t file_offset, const
 void MapFile::set_enemy_sets_for_floor(uint8_t floor, size_t file_offset, const void* data, size_t size) {
   auto& floor_sections = this->sections_for_floor.at(floor);
   if (floor_sections.enemy_sets) {
-    throw runtime_error("multiple enemy sets sections for same floor");
+    throw std::runtime_error("multiple enemy sets sections for same floor");
   }
   if (floor_sections.events2 || floor_sections.random_enemy_definitions || floor_sections.random_enemy_locations) {
-    throw runtime_error("floor already has random enemies and cannot also have fixed enemies");
+    throw std::runtime_error("floor already has random enemies and cannot also have fixed enemies");
   }
   if (size % sizeof(EnemySetEntry)) {
-    throw runtime_error("enemy sets section size is not a multiple of entry size");
+    throw std::runtime_error("enemy sets section size is not a multiple of entry size");
   }
   floor_sections.enemy_sets = reinterpret_cast<const EnemySetEntry*>(data);
   floor_sections.enemy_set_count = size / sizeof(EnemySetEntry);
@@ -3550,7 +3607,7 @@ void MapFile::set_enemy_sets_for_floor(uint8_t floor, size_t file_offset, const 
 void MapFile::set_events_for_floor(uint8_t floor, size_t file_offset, const void* data, size_t size, bool allow_evt2) {
   auto& floor_sections = this->sections_for_floor.at(floor);
   if (floor_sections.events_data || floor_sections.events1 || floor_sections.events2 || floor_sections.event_action_stream) {
-    throw runtime_error("multiple events sections for same floor");
+    throw std::runtime_error("multiple events sections for same floor");
   }
 
   floor_sections.events_data = data;
@@ -3563,10 +3620,10 @@ void MapFile::set_events_for_floor(uint8_t floor, size_t file_offset, const void
   floor_sections.event_count = events_header.entry_count;
   if (events_header.is_evt2()) {
     if (!allow_evt2) {
-      throw runtime_error("random events cannot be used in this context");
+      throw std::runtime_error("random events cannot be used in this context");
     }
     if (floor_sections.enemy_sets) {
-      throw runtime_error("floor already has fixed enemies and cannot also have random enemies");
+      throw std::runtime_error("floor already has fixed enemies and cannot also have random enemies");
     }
     floor_sections.events2 = &r.pget<Event2Entry>(
         events_header.entries_offset, events_header.entry_count * sizeof(Event2Entry));
@@ -3583,7 +3640,7 @@ void MapFile::set_events_for_floor(uint8_t floor, size_t file_offset, const void
 void MapFile::set_random_enemy_locations_for_floor(uint8_t floor, size_t file_offset, const void* data, size_t size) {
   auto& floor_sections = this->sections_for_floor.at(floor);
   if (floor_sections.random_enemy_locations_data) {
-    throw runtime_error("multiple random enemy locations sections for same floor");
+    throw std::runtime_error("multiple random enemy locations sections for same floor");
   }
 
   floor_sections.random_enemy_locations_data = data;
@@ -3594,12 +3651,12 @@ void MapFile::set_random_enemy_locations_for_floor(uint8_t floor, size_t file_of
 
   phosg::StringReader r(data, size);
   const auto& header = r.get<RandomEnemyLocationsHeader>();
-  floor_sections.random_enemy_location_section_count = header.num_rooms;
-  floor_sections.random_enemy_location_sections = &r.pget<RandomEnemyLocationSection>(
-      header.room_table_offset, floor_sections.random_enemy_location_section_count * sizeof(RandomEnemyLocationSection));
+  floor_sections.random_enemy_room_count = header.num_rooms;
+  floor_sections.random_enemy_rooms = &r.pget<RandomEnemyRoom>(
+      header.room_table_offset, floor_sections.random_enemy_room_count * sizeof(RandomEnemyRoom));
   size_t max_offset = 0;
-  for (size_t z = 0; z < floor_sections.random_enemy_location_section_count; z++) {
-    const auto& sec = floor_sections.random_enemy_location_sections[z];
+  for (size_t z = 0; z < floor_sections.random_enemy_room_count; z++) {
+    const auto& sec = floor_sections.random_enemy_rooms[z];
     if (sec.offset % sizeof(RandomEnemyLocation)) {
       // TODO: We probably could support this if it's actually needed somewhere
       throw std::runtime_error(std::format("random enemy location offset {:08X} is not a multiple of struct size {:08X}",
@@ -3615,7 +3672,7 @@ void MapFile::set_random_enemy_locations_for_floor(uint8_t floor, size_t file_of
 void MapFile::set_random_enemy_definitions_for_floor(uint8_t floor, size_t file_offset, const void* data, size_t size) {
   auto& floor_sections = this->sections_for_floor.at(floor);
   if (floor_sections.random_enemy_definitions_data) {
-    throw runtime_error("multiple random enemy locations sections for same floor");
+    throw std::runtime_error("multiple random enemy locations sections for same floor");
   }
 
   floor_sections.random_enemy_definitions_data = data;
@@ -3629,9 +3686,9 @@ void MapFile::set_random_enemy_definitions_for_floor(uint8_t floor, size_t file_
   floor_sections.random_enemy_definition_count = header.entry_count;
   floor_sections.random_enemy_definitions = &r.pget<RandomEnemyDefinition>(
       header.entries_offset, floor_sections.random_enemy_definition_count * sizeof(RandomEnemyDefinition));
-  floor_sections.random_enemy_definition_weight_count = header.weight_entry_count;
-  floor_sections.random_enemy_definition_weights = &r.pget<RandomEnemyWeight>(
-      header.weight_entries_offset, floor_sections.random_enemy_definition_weight_count * sizeof(RandomEnemyWeight));
+  floor_sections.random_enemy_weight_count = header.weight_entry_count;
+  floor_sections.random_enemy_weights = &r.pget<RandomEnemyWeight>(
+      header.weight_entries_offset, floor_sections.random_enemy_weight_count * sizeof(RandomEnemyWeight));
 }
 
 std::shared_ptr<const MapFile> MapFile::materialize_random_sections(uint32_t random_seed) const {
@@ -3644,7 +3701,7 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
   }
 
   static_game_data_log.debug_f("Generating random enemies using seed {:08X}", random_seed);
-  auto new_map = make_shared<MapFile>(random_seed);
+  auto new_map = std::make_shared<MapFile>(random_seed);
   RandomState random_state(random_seed);
 
   for (uint8_t floor = 0; floor < 0x12; floor++) {
@@ -3668,10 +3725,10 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
       static_game_data_log.debug_f("(Floor {}) Using existing events (format 2; random)", floor);
 
       if (!this_sf.random_enemy_locations_data || !this_sf.random_enemy_definitions_data) {
-        throw runtime_error("cannot materialize random enemies; evt2 section present but one or both random data sections are missing");
+        throw std::runtime_error("cannot materialize random enemies; evt2 section present but one or both random data sections are missing");
       }
       if (!this_sf.event_action_stream) {
-        throw runtime_error("cannot materialize random enemies; action stream is missing");
+        throw std::runtime_error("cannot materialize random enemies; action stream is missing");
       }
 
       phosg::StringReader locations_sec_r(this_sf.random_enemy_locations_data, this_sf.random_enemy_locations_data_size);
@@ -3682,6 +3739,15 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
           definitions_header.entries_offset, definitions_header.entry_count * sizeof(RandomEnemyDefinition));
       auto weights_r = definitions_sec_r.sub(
           definitions_header.weight_entries_offset, definitions_header.weight_entry_count * sizeof(RandomEnemyWeight));
+
+      // Note: The original implementation (Sega's) computes this sum within the `while (remaining_enemies)` loop
+      // below; however, this sum depends only on the event data section and not the wave number, room ID, or anything
+      // else that could change during the below code, so compute it only once here instead.
+      weights_r.go(0);
+      size_t weight_total = 0;
+      while (!weights_r.eof()) {
+        weight_total += weights_r.get<RandomEnemyWeight>().weight;
+      }
 
       phosg::StringWriter enemy_sets_w;
       phosg::StringWriter events1_w;
@@ -3697,7 +3763,6 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
 
         size_t remaining_waves = random_state.rand_int_biased(1, source_event2.max_waves);
         static_game_data_log.debug_f("(Floor {} event {}) Chose {} waves", floor, source_event_index, remaining_waves);
-        // Trace: at 0080E125 EAX is wave count
 
         le_uint32_t wave_next_event_id = source_event2.event_id;
         uint32_t wave_number = source_event2.wave_number;
@@ -3707,25 +3772,13 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
           size_t remaining_enemies = random_state.rand_int_biased(source_event2.min_enemies, source_event2.max_enemies);
           static_game_data_log.debug_f("(Floor {} event {} wave {}) Chose {} enemies",
               floor, source_event_index, remaining_waves, remaining_enemies);
-          // Trace: at 0080E208 EDI is enemy count
 
           random_state.generate_shuffled_location_table(locations_header, locations_sec_r, source_event2.room);
-          // Trace: at 0080EBB0 *(EBP + 4) points to table (0x20 uint32_ts)
 
           while (remaining_enemies) {
             remaining_enemies--;
 
-            // TODO: Factor this sum out of the loops
-            weights_r.go(0);
-            size_t weight_total = 0;
-            while (!weights_r.eof()) {
-              weight_total += weights_r.get<RandomEnemyWeight>().weight;
-            }
-            // Trace: at 0080E2C2 EBX is weight_total
-
             size_t det = random_state.rand_int_biased(0, weight_total - 1);
-            // Trace: at 0080E300 EDX is det
-
             static_game_data_log.debug_f("(Floor {} event {} wave {} enemy {}) det={}, weight_total={}",
                 floor, source_event_index, remaining_waves, remaining_enemies, det, weight_total);
 
@@ -3737,7 +3790,7 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
                     floor, source_event_index, remaining_waves, remaining_enemies, weight_entry.str());
                 if ((weight_entry.base_type_index != 0xFF) && (weight_entry.def_entry_index != 0xFF)) {
                   if (definitions_header.entry_count == 0) {
-                    throw runtime_error("no available random enemy definitions");
+                    throw std::runtime_error("no available random enemy definitions");
                   }
 
                   EnemySetEntry e;
@@ -3772,7 +3825,7 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
                     // function instead, which is functionally equivalent.
                     e.num_children = random_state.rand_int_biased(def.min_children, def.max_children);
                   } else {
-                    throw runtime_error("random enemy definition not found");
+                    throw std::runtime_error("random enemy definition not found");
                   }
 
                   const auto& loc = locations_sec_r.pget<RandomEnemyLocation>(
@@ -3780,7 +3833,6 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
                   e.pos = loc.pos;
                   e.angle = loc.angle;
 
-                  // Trace: at 0080E6FE CX is base_type
                   enemy_sets_w.put<EnemySetEntry>(e);
                 }
                 break;
@@ -3838,18 +3890,18 @@ std::shared_ptr<MapFile> MapFile::materialize_random_sections(uint32_t random_se
       events1_sec_w.write(events1_w.str());
       events1_sec_w.write(action_stream_w.str());
 
-      auto enemy_sets_sec_data = make_shared<string>(std::move(enemy_sets_w.str()));
+      auto enemy_sets_sec_data = std::make_shared<std::string>(std::move(enemy_sets_w.str()));
       new_map->link_data(enemy_sets_sec_data);
       new_map->set_enemy_sets_for_floor(floor, 0, enemy_sets_sec_data->data(), enemy_sets_sec_data->size());
 
-      auto events1_sec_data = make_shared<string>(std::move(events1_sec_w.str()));
+      auto events1_sec_data = std::make_shared<std::string>(std::move(events1_sec_w.str()));
       new_map->link_data(events1_sec_data);
       new_map->set_events_for_floor(floor, 0, events1_sec_data->data(), events1_sec_data->size(), false);
     }
   }
 
-  // Add everything in this->linked_data to the new map's linked_data, since it
-  // likely is referenced by pointers in sections_for_floor
+  // Add everything in this->linked_data to the new map's linked_data, since it likely is referenced by pointers in
+  // sections_for_floor
   new_map->quest_data = this->quest_data;
   for (const auto& it : this->linked_data) {
     new_map->link_data(it);
@@ -3897,8 +3949,8 @@ size_t MapFile::count_events() const {
   return ret;
 }
 
-string MapFile::disassemble_action_stream(const void* data, size_t size) {
-  deque<string> ret;
+std::string MapFile::disassemble_action_stream(const void* data, size_t size) {
+  std::deque<std::string> ret;
   phosg::StringReader r(data, size);
 
   while (!r.eof()) {
@@ -3956,8 +4008,8 @@ string MapFile::disassemble_action_stream(const void* data, size_t size) {
   return phosg::join(ret, "\n");
 }
 
-string MapFile::disassemble(bool reassembly, Version version) const {
-  deque<string> ret;
+std::string MapFile::disassemble(bool reassembly, Version version) const {
+  std::deque<std::string> ret;
   for (uint8_t floor = 0; floor < this->sections_for_floor.size(); floor++) {
     const auto& sf = this->sections_for_floor[floor];
     phosg::StringReader as_r(sf.event_action_stream, sf.event_action_stream_bytes);
@@ -4037,7 +4089,7 @@ string MapFile::disassemble(bool reassembly, Version version) const {
         if (reassembly) {
           ret.emplace_back(ev.str());
         } else {
-          ret.emplace_back(std::format("/* index {} */ {}", z, ev.str()));
+          ret.emplace_back(std::format("/* index {:04X} */ {}", z, ev.str()));
         }
         if (ev.action_stream_offset >= sf.event_action_stream_bytes) {
           ret.emplace_back(std::format(
@@ -4057,12 +4109,15 @@ string MapFile::disassemble(bool reassembly, Version version) const {
         ret.emplace_back(std::format(".random_enemy_locations {} /* offset 0x{:X} in file; 0x{:X} bytes */",
             floor, sf.random_enemy_locations_file_offset, sf.random_enemy_locations_file_size));
       }
-      for (size_t z = 0; z < sf.random_enemy_location_section_count; z++) {
-        const auto& sec = sf.random_enemy_location_sections[z];
+      uint16_t last_room_id = 0;
+      for (size_t z = 0; z < sf.random_enemy_room_count; z++) {
+        const auto& sec = sf.random_enemy_rooms[z];
+        const std::string& warning_text = (sec.room_id < last_room_id) ? " /* warning: room IDs out of order */" : "";
+        last_room_id = sec.room_id;
         if (reassembly) {
-          ret.emplace_back(sec.str());
+          ret.emplace_back(std::format("{}{}", sec.str(), warning_text));
         } else {
-          ret.emplace_back(std::format("/* section index {} */ {}", z, sec.str()));
+          ret.emplace_back(std::format("/* room index {:04X} */ {}{}", z, sec.str(), warning_text));
         }
       }
       for (size_t z = 0; z < sf.random_enemy_location_count; z++) {
@@ -4070,7 +4125,7 @@ string MapFile::disassemble(bool reassembly, Version version) const {
         if (reassembly) {
           ret.emplace_back(ent.str());
         } else {
-          ret.emplace_back(std::format("/* entry index {} */ {}", z, ent.str()));
+          ret.emplace_back(std::format("/* entry index {:04X} */ {}", z, ent.str()));
         }
       }
       ret.emplace_back();
@@ -4088,15 +4143,15 @@ string MapFile::disassemble(bool reassembly, Version version) const {
         if (reassembly) {
           ret.emplace_back(def.str());
         } else {
-          ret.emplace_back(std::format("/* definition index {} */ {}", z, def.str()));
+          ret.emplace_back(std::format("/* definition index {:04X} */ {}", z, def.str()));
         }
       }
-      for (size_t z = 0; z < sf.random_enemy_definition_weight_count; z++) {
-        const auto& weight = sf.random_enemy_definition_weights[z];
+      for (size_t z = 0; z < sf.random_enemy_weight_count; z++) {
+        const auto& weight = sf.random_enemy_weights[z];
         if (reassembly) {
           ret.emplace_back(weight.str());
         } else {
-          ret.emplace_back(std::format("/* weight index {} */ {}", z, weight.str()));
+          ret.emplace_back(std::format("/* weight index {:04X} */ {}", z, weight.str()));
         }
       }
       ret.emplace_back();
@@ -4106,32 +4161,162 @@ string MapFile::disassemble(bool reassembly, Version version) const {
   return phosg::join(ret, "\n");
 }
 
+std::string MapFile::serialize() const {
+  using T = SectionHeader::Type;
+  phosg::StringWriter w;
+
+  auto write_section_header = [&](T type, uint32_t floor, uint32_t data_size) -> void {
+    uint32_t section_size = data_size + sizeof(SectionHeader);
+    w.put<SectionHeader>({static_cast<uint32_t>(type), section_size, floor, data_size});
+  };
+
+  // Try to serialize the sections in the same order as the input file; if the offsets are missing, serialize in
+  // (floor, type) order
+  struct SectionOrderEntry {
+    T type;
+    uint8_t floor;
+    size_t file_offset;
+    bool operator<(const SectionOrderEntry& other) const {
+      if (this->file_offset < other.file_offset) {
+        return true;
+      } else if (this->file_offset > other.file_offset) {
+        return false;
+      }
+      if (this->floor < other.floor) {
+        return true;
+      } else if (this->floor > other.floor) {
+        return false;
+      }
+      return static_cast<uint8_t>(this->type) < static_cast<uint8_t>(other.type);
+    }
+  };
+  std::set<SectionOrderEntry> sections_to_serialize;
+  for (uint8_t floor = 0; floor < this->sections_for_floor.size(); floor++) {
+    const auto& sf = this->sections_for_floor[floor];
+    if (sf.object_sets) {
+      sections_to_serialize.emplace(SectionOrderEntry{T::OBJECT_SETS, floor, sf.object_sets_file_offset});
+    }
+    if (sf.enemy_sets) {
+      sections_to_serialize.emplace(SectionOrderEntry{T::ENEMY_SETS, floor, sf.enemy_sets_file_offset});
+    }
+    if (sf.events1 || sf.events2) {
+      sections_to_serialize.emplace(SectionOrderEntry{T::EVENTS, floor, sf.events_file_offset});
+    }
+    if (sf.random_enemy_room_count && sf.random_enemy_locations) {
+      sections_to_serialize.emplace(SectionOrderEntry{
+          T::RANDOM_ENEMY_LOCATIONS, floor, sf.random_enemy_locations_file_offset});
+    }
+    if (sf.random_enemy_definitions && sf.random_enemy_weights) {
+      sections_to_serialize.emplace(SectionOrderEntry{
+          T::RANDOM_ENEMY_DEFINITIONS, floor, sf.random_enemy_definitions_file_offset});
+    }
+  }
+
+  for (const auto& section : sections_to_serialize) {
+    const auto& sf = this->sections_for_floor[section.floor];
+
+    switch (section.type) {
+      case T::OBJECT_SETS: {
+        size_t data_size = sizeof(ObjectSetEntry) * sf.object_set_count;
+        write_section_header(T::OBJECT_SETS, section.floor, data_size);
+        w.write(sf.object_sets, data_size);
+        break;
+      }
+      case T::ENEMY_SETS: {
+        size_t data_size = sizeof(EnemySetEntry) * sf.enemy_set_count;
+        write_section_header(T::ENEMY_SETS, section.floor, data_size);
+        w.write(sf.enemy_sets, data_size);
+        break;
+      }
+      case T::EVENTS: {
+        auto serialize_events_section = [&]<typename EventT>(const EventT* events) -> void {
+          EventsSectionHeader ev_header = {
+              .action_stream_offset = sizeof(EventsSectionHeader) + sizeof(EventT) * sf.event_count,
+              .entries_offset = sizeof(EventsSectionHeader),
+              .entry_count = sf.event_count,
+              .format = std::is_same_v<EventT, Event2Entry> ? 0x65767432 : 0x00000000,
+          };
+          size_t data_size = ev_header.action_stream_offset + sf.event_action_stream_bytes;
+          data_size = (data_size + 3) & (~3);
+          write_section_header(T::EVENTS, section.floor, data_size);
+          w.put(ev_header);
+          w.write(events, sf.event_count * sizeof(EventT));
+          w.write(sf.event_action_stream, sf.event_action_stream_bytes);
+          while (w.size() & 3) {
+            w.put_u8(0x00);
+          }
+        };
+        if (sf.events1) {
+          serialize_events_section(sf.events1);
+        } else if (sf.events2) {
+          serialize_events_section(sf.events2);
+        }
+        break;
+      }
+      case T::RANDOM_ENEMY_LOCATIONS: {
+        size_t data_size = sizeof(RandomEnemyLocationsHeader) +
+            sf.random_enemy_room_count * sizeof(RandomEnemyRoom) +
+            sf.random_enemy_location_count * sizeof(RandomEnemyLocation);
+        write_section_header(T::RANDOM_ENEMY_LOCATIONS, section.floor, data_size);
+        w.put(RandomEnemyLocationsHeader{
+            .room_table_offset = sizeof(RandomEnemyLocationsHeader),
+            .entries_offset = sizeof(RandomEnemyLocationsHeader) + sf.random_enemy_room_count * sizeof(RandomEnemyRoom),
+            .num_rooms = sf.random_enemy_room_count,
+        });
+        w.write(sf.random_enemy_rooms, sf.random_enemy_room_count * sizeof(RandomEnemyRoom));
+        w.write(sf.random_enemy_locations, sf.random_enemy_location_count * sizeof(RandomEnemyLocation));
+        break;
+      }
+      case T::RANDOM_ENEMY_DEFINITIONS: {
+        size_t data_size = sizeof(RandomEnemyDefinitionsHeader) +
+            sf.random_enemy_definition_count * sizeof(RandomEnemyDefinition) +
+            sf.random_enemy_weight_count * sizeof(RandomEnemyWeight);
+        write_section_header(T::RANDOM_ENEMY_DEFINITIONS, section.floor, data_size);
+        w.put(RandomEnemyDefinitionsHeader{
+            .entries_offset = sizeof(RandomEnemyDefinitionsHeader),
+            .weight_entries_offset = sizeof(RandomEnemyDefinitionsHeader) + sf.random_enemy_definition_count * sizeof(RandomEnemyDefinition),
+            .entry_count = sf.random_enemy_definition_count,
+            .weight_entry_count = sf.random_enemy_weight_count,
+        });
+        w.write(sf.random_enemy_definitions, sf.random_enemy_definition_count * sizeof(RandomEnemyDefinition));
+        w.write(sf.random_enemy_weights, sf.random_enemy_weight_count * sizeof(RandomEnemyWeight));
+        break;
+      }
+      default:
+        throw std::logic_error("invalid section type descriptor");
+    }
+  }
+
+  w.put<SectionHeader>({static_cast<uint32_t>(T::END), 0, 0, 0});
+  return std::move(w.str());
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Super map
 
-string SuperMap::Object::id_str() const {
+std::string SuperMap::Object::id_str() const {
   return std::format("KS-{:02X}-{:03X}", this->floor, this->super_id);
 }
 
-string SuperMap::Object::str() const {
-  string ret = "[Object " + this->id_str();
+std::string SuperMap::Object::str() const {
+  std::string ret = "[Object " + this->id_str();
   for (Version v : ALL_NON_PATCH_VERSIONS) {
     const auto& def = this->version(v);
     if (def.relative_object_index != 0xFFFF) {
-      string args_str = def.set_entry->str(v);
-      ret += std::format(" {}:[{:04X} => {}]", phosg::name_for_enum(v), def.relative_object_index, args_str);
+      ret += std::format(" {}:[{:04X} => {}]",
+          phosg::name_for_enum(v), def.relative_object_index, def.set_entry->str(v));
     }
   }
   ret += "]";
   return ret;
 }
 
-string SuperMap::Enemy::id_str() const {
+std::string SuperMap::Enemy::id_str() const {
   return std::format("ES-{:02X}-{:03X}-{:03X}", this->floor, this->super_set_id, this->super_id);
 }
 
-string SuperMap::Enemy::str() const {
-  string ret = std::format("[Enemy {} type={} child_index={:X} alias_target_ene={} is_default_rare_v123={} is_default_rare_bb={}",
+std::string SuperMap::Enemy::str() const {
+  std::string ret = std::format("[Enemy {} type={} child_index={:X} alias_target_ene={} is_default_rare_v123={} is_default_rare_bb={}",
       this->id_str(),
       phosg::name_for_enum(this->type),
       this->child_index,
@@ -4141,32 +4326,29 @@ string SuperMap::Enemy::str() const {
   for (Version v : ALL_NON_PATCH_VERSIONS) {
     const auto& def = this->version(v);
     if (def.relative_enemy_index != 0xFFFF) {
-      string args_str = def.set_entry->str(v);
-      ret += std::format(
-          " {}:[{:04X}/{:04X} => {}]",
-          phosg::name_for_enum(v),
-          def.relative_set_index,
-          def.relative_enemy_index,
-          args_str);
+      ret += std::format(" {}:[{:04X}/{:04X} => {}]",
+          phosg::name_for_enum(v), def.relative_set_index, def.relative_enemy_index, def.set_entry->str(v));
     }
   }
   ret += "]";
   return ret;
 }
 
-string SuperMap::Event::id_str() const {
+std::string SuperMap::Event::id_str() const {
   return std::format("WS-{:02X}-{:03X}", this->floor, this->super_id);
 }
 
-string SuperMap::Event::str() const {
-  string ret = "[Event " + this->id_str();
+std::string SuperMap::Event::str() const {
+  std::string ret = "[Event " + this->id_str();
   for (Version v : ALL_NON_PATCH_VERSIONS) {
     const auto& def = this->version(v);
     if (def.relative_event_index != 0xFFFF) {
-      string action_stream_str = phosg::format_data_string(def.action_stream, def.action_stream_size);
-      string args_str = def.set_entry->str();
       ret += std::format(
-          " {}:[{:04X} => {}+{}]", phosg::name_for_enum(v), def.relative_event_index, args_str, action_stream_str);
+          " {}:[{:04X} => {}+{}]",
+          phosg::name_for_enum(v),
+          def.relative_event_index,
+          def.set_entry->str(),
+          phosg::format_data_string(def.action_stream, def.action_stream_size));
     }
   }
   ret += "]";
@@ -4183,14 +4365,14 @@ SuperMap::SuperMap(
       continue;
     }
     if (map_file->has_random_sections()) {
-      throw logic_error("supermap cannot be constructed from map files that contain random sections");
+      throw std::logic_error("supermap cannot be constructed from map files that contain random sections");
     }
 
     if (map_file->random_seed() >= 0) {
       if (this->random_seed < 0) {
         this->random_seed = map_file->random_seed();
       } else if (this->random_seed != map_file->random_seed()) {
-        throw logic_error("supermap cannot be constructed from map files with different random seeds");
+        throw std::logic_error("supermap cannot be constructed from map files with different random seeds");
       }
     }
   }
@@ -4209,9 +4391,9 @@ static uint64_t room_index_key(uint8_t floor, uint16_t room, uint16_t wave_numbe
   return (static_cast<uint64_t>(floor) << 32) | (static_cast<uint64_t>(room) << 16) | static_cast<uint64_t>(wave_number);
 }
 
-shared_ptr<SuperMap::Object> SuperMap::add_object(
+std::shared_ptr<SuperMap::Object> SuperMap::add_object(
     Version version, uint8_t floor, const MapFile::ObjectSetEntry* set_entry) {
-  auto obj = make_shared<Object>();
+  auto obj = std::make_shared<Object>();
   obj->super_id = this->objects.size();
   obj->floor = floor;
 
@@ -4221,12 +4403,13 @@ shared_ptr<SuperMap::Object> SuperMap::add_object(
   return obj;
 }
 
-void SuperMap::link_object_version(std::shared_ptr<Object> obj, Version version, const MapFile::ObjectSetEntry* set_entry) {
+void SuperMap::link_object_version(
+    std::shared_ptr<Object> obj, Version version, const MapFile::ObjectSetEntry* set_entry) {
   // Add to version's entities list and set the object's per-version info
   auto& entities = this->version(version);
   auto& obj_ver = obj->version(version);
   if (obj_ver.set_entry) {
-    throw logic_error("object already linked to version");
+    throw std::logic_error("object already linked to version");
   }
   obj_ver.set_entry = set_entry;
   obj_ver.relative_object_index = entities.objects.size();
@@ -4254,7 +4437,7 @@ void SuperMap::link_object_version(std::shared_ptr<Object> obj, Version version,
       break;
     case 0x00C1: // TODoorCave01
     case 0x0100: // TODoorMachine01
-      num_switch_flags = (4 - clamp<size_t>(set_entry->param5, 0, 4));
+      num_switch_flags = (4 - std::clamp<size_t>(set_entry->param5, 0, 4));
       break;
     case 0x014A: // TODoorAncient08
       num_switch_flags = 4;
@@ -4270,10 +4453,10 @@ void SuperMap::link_object_version(std::shared_ptr<Object> obj, Version version,
   }
 }
 
-shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
+std::shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
     Version version, uint8_t floor, const MapFile::EnemySetEntry* set_entry) {
 
-  shared_ptr<Enemy> head_ene = nullptr;
+  std::shared_ptr<Enemy> head_ene = nullptr;
   size_t next_child_index = 0;
   auto add = [&](EnemyType type,
                  bool is_default_rare_v123 = false,
@@ -4288,7 +4471,7 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
     // TODO: It'd be nice to share some code between this function and link_enemy_version_and_children
 
     // Create enemy
-    auto ene = make_shared<Enemy>();
+    auto ene = std::make_shared<Enemy>();
     ene->super_id = this->enemies.size();
     ene->child_index = next_child_index++;
     ene->super_set_id = this->enemy_sets.size() - (ene->child_index != 0);
@@ -4415,22 +4598,21 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
       break;
     case 0x0044: { // TObjEneBeast
       static const EnemyType types[3] = {EnemyType::BOOMA, EnemyType::GOBOOMA, EnemyType::GIGOBOOMA};
-      add(types[clamp<int16_t>(set_entry->param6, 0, 2)]);
+      add(types[std::clamp<int16_t>(set_entry->param6, 0, 2)]);
       break;
     }
     case 0x0060: // TObjGrass
       add(EnemyType::GRASS_ASSASSIN);
       break;
-    case 0x0061: { // TObjEneRe2Flower
+    case 0x0061: // TObjEneRe2Flower
       add((this->area_for_floor(floor) == 0x23) ? EnemyType::DEL_LILY : EnemyType::POISON_LILY);
       break;
-    }
     case 0x0062: // TObjEneNanoDrago
       add(EnemyType::NANO_DRAGON);
       break;
     case 0x0063: { // TObjEneShark
       static const EnemyType types[3] = {EnemyType::EVIL_SHARK, EnemyType::PAL_SHARK, EnemyType::GUIL_SHARK};
-      add(types[clamp<int16_t>(set_entry->param6, 0, 2)]);
+      add(types[std::clamp<int16_t>(set_entry->param6, 0, 2)]);
       break;
     }
     case 0x0064: { // TObjEneSlime
@@ -4499,7 +4681,7 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
       break;
     case 0x00A6: { // TObjEneDimedian
       static const EnemyType types[3] = {EnemyType::DIMENIAN, EnemyType::LA_DIMENIAN, EnemyType::SO_DIMENIAN};
-      add(types[clamp<int16_t>(set_entry->param6, 0, 2)]);
+      add(types[std::clamp<int16_t>(set_entry->param6, 0, 2)]);
       break;
     }
     case 0x00A7: // TObjEneBalClawBody
@@ -4579,9 +4761,18 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
       break;
     }
     case 0x00CB: // TBoss7DeRolLeC
+      if ((set_entry->num_children != 0) && (set_entry->num_children != 0x2F)) {
+        this->log.warning_f("BARBA_RAY has an unusual num_children (0x{:X})", set_entry->num_children);
+      }
+      default_num_children = -1; // Skip adding children (because we do it here)
       add(EnemyType::BARBA_RAY);
-      child_type = EnemyType::PIG_RAY;
-      default_num_children = 0x2F;
+      for (size_t z = 0; z < 0x0A; z++) {
+        add(EnemyType::BARBA_RAY_JOINT);
+      }
+      for (size_t z = 0; z < 0x24; z++) {
+        add(EnemyType::PIG_RAY);
+      }
+      add(EnemyType::BARBA_RAY); // TODO: What is this actually?
       break;
     case 0x00CC: // TBoss8Dragon
       add(EnemyType::GOL_DRAGON);
@@ -4703,7 +4894,7 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
     }
     case 0x0115: {
       static const EnemyType types[3] = {EnemyType::BOOTA, EnemyType::ZE_BOOTA, EnemyType::BA_BOOTA};
-      add(types[clamp<int16_t>(set_entry->param6, 0, 2)]);
+      add(types[std::clamp<int16_t>(set_entry->param6, 0, 2)]);
       break;
     }
     case 0x0116: {
@@ -4713,14 +4904,28 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
     }
     case 0x0117: {
       static const EnemyType types[3] = {EnemyType::GORAN, EnemyType::PYRO_GORAN, EnemyType::GORAN_DETONATOR};
-      add(types[clamp<int16_t>(set_entry->param6, 0, 2)]);
+      add(types[std::clamp<int16_t>(set_entry->param6, 0, 2)]);
       break;
     }
-    case 0x0119:
+    case 0x0119: {
+      if ((set_entry->num_children != 0) && (set_entry->num_children != 0x18)) {
+        this->log.warning_f("SAINT_MILION or SHAMBERTIN has an unusual num_children (0x{:X})", set_entry->num_children);
+      }
+      default_num_children = -1; // Skip adding children (because we do it here)
+
       // There isn't a way to create Kondrieu via constructor args
-      add((set_entry->param6 & 1) ? EnemyType::SHAMBERTIN : EnemyType::SAINT_MILION);
-      default_num_children = 0x18;
+      bool is_shambertin = (set_entry->param6 & 1);
+      EnemyType base_type = is_shambertin ? EnemyType::SHAMBERTIN : EnemyType::SAINT_MILION;
+      EnemyType spinner_type = is_shambertin ? EnemyType::SHAMBERTIN_SPINNER : EnemyType::SAINT_MILION_SPINNER;
+      auto root_ene = add(base_type);
+      for (size_t z = 0; z < 8; z++) {
+        add(base_type);
+      }
+      for (size_t z = 0; z < 0x10; z++) { // 16 spinners
+        add(spinner_type);
+      }
       break;
+    }
 
     case 0x00C3: // TBoss3VoloptP01
     case 0x00C4: // TBoss3VoloptCore or subclass
@@ -4747,7 +4952,7 @@ shared_ptr<SuperMap::Enemy> SuperMap::add_enemy_and_children(
   }
 
   if (!head_ene) {
-    throw logic_error("no enemy was created");
+    throw std::logic_error("no enemy was created");
   }
   return head_ene;
 }
@@ -4760,7 +4965,7 @@ void SuperMap::link_enemy_version_and_children(
   do {
     auto& ene_ver = ene->version(version);
     if (ene_ver.set_entry) {
-      throw logic_error("enemy already linked to version");
+      throw std::logic_error("enemy already linked to version");
     }
 
     ene_ver.set_entry = set_entry;
@@ -4786,7 +4991,7 @@ void SuperMap::link_enemy_version_and_children(
 
     try {
       ene = this->enemies.at(ene->super_id + 1);
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       ene = nullptr;
     }
   } while (ene && (ene->super_set_id == super_set_id));
@@ -4829,7 +5034,7 @@ std::shared_ptr<SuperMap::Event> SuperMap::add_event(
     const MapFile::Event1Entry* entry,
     const void* map_file_action_stream,
     size_t map_file_action_stream_size) {
-  auto ev = make_shared<Event>();
+  auto ev = std::make_shared<Event>();
   ev->super_id = this->events.size();
   ev->floor = floor;
 
@@ -4846,10 +5051,9 @@ void SuperMap::link_event_version(
     const void* map_file_action_stream,
     size_t map_file_action_stream_size) {
   if (entry->action_stream_offset >= map_file_action_stream_size) {
-    string s = entry->str();
-    throw runtime_error(std::format(
+    throw std::runtime_error(std::format(
         "action stream offset 0x{:X} is beyond end of action stream (0x{:X}) for event {}",
-        entry->action_stream_offset, map_file_action_stream_size, s));
+        entry->action_stream_offset, map_file_action_stream_size, entry->str()));
   }
   const void* ev_action_stream_start = reinterpret_cast<const uint8_t*>(map_file_action_stream) +
       entry->action_stream_offset;
@@ -4859,7 +5063,7 @@ void SuperMap::link_event_version(
   auto& entities = this->version(version);
   auto& ev_ver = ev->version(version);
   if (ev_ver.set_entry) {
-    throw logic_error("event already linked to version");
+    throw std::logic_error("event already linked to version");
   }
   ev_ver.set_entry = entry;
   ev_ver.relative_event_index = entities.events.size();
@@ -4892,7 +5096,7 @@ enum class EditAction {
 };
 
 template <typename EntityT, typename Score1, typename Score2>
-vector<EditAction> compute_edit_path(
+std::vector<EditAction> compute_edit_path(
     const EntityT* prev,
     size_t prev_count,
     const EntityT* curr,
@@ -4989,7 +5193,7 @@ vector<EditAction> compute_edit_path(
   }
 
   // Trace the reverse path to get the list of edits
-  vector<EditAction> reverse_path;
+  std::vector<EditAction> reverse_path;
   size_t x = curr_count;
   size_t y = prev_count;
   while (x > 0 || y > 0) {
@@ -4998,7 +5202,7 @@ vector<EditAction> compute_edit_path(
     switch (action) {
       case EditAction::STOP:
         mtx.print(stderr); // TODO: delete this when no longer needed
-        throw logic_error("STOP action left after edit distance computation");
+        throw std::logic_error("STOP action left after edit distance computation");
       case EditAction::ADD:
         x--;
         break;
@@ -5018,11 +5222,11 @@ vector<EditAction> compute_edit_path(
 }
 
 template <typename EntityT>
-vector<shared_ptr<EntityT>> compute_prev_entities(
-    const vector<shared_ptr<EntityT>>& existing_prev_entities,
+std::vector<std::shared_ptr<EntityT>> compute_prev_entities(
+    const std::vector<std::shared_ptr<EntityT>>& existing_prev_entities,
     size_t prev_entities_offset,
-    const vector<EditAction>& edit_path) {
-  vector<shared_ptr<EntityT>> ret;
+    const std::vector<EditAction>& edit_path) {
+  std::vector<std::shared_ptr<EntityT>> ret;
   for (auto action : edit_path) {
     switch (action) {
       case EditAction::ADD:
@@ -5040,7 +5244,7 @@ vector<shared_ptr<EntityT>> compute_prev_entities(
         break;
       }
       default:
-        throw logic_error("invalid edit path action");
+        throw std::logic_error("invalid edit path action");
     }
   }
   return ret;
@@ -5077,8 +5281,54 @@ static double enemy_set_delete_cost(const MapFile::EnemySetEntry&) {
   return 100.0;
 }
 static double enemy_set_edit_cost(const MapFile::EnemySetEntry& prev, const MapFile::EnemySetEntry& current) {
-  // A change of type or num_children is not tolerated and should never be better than an add + delete
+  // A change of type or num_children is not tolerated and should never be better than an add + delete. Unlike for
+  // objects, we have to look at params to determine the type in some cases too
   if ((prev.base_type != current.base_type) || (prev.num_children != current.num_children)) {
+    return 500.0;
+  }
+  bool is_mismatched = false;
+  switch (prev.base_type) {
+    case 0x0064: // TObjEneSlime
+      is_mismatched = ((prev.param7 & 1) != (current.param7 & 1));
+      break;
+    case 0x0041: // TObjEneLappy
+    case 0x0080: // TObjEneDubchik
+      is_mismatched = ((prev.param6 == 0) != (current.param6 == 0));
+      break;
+    case 0x0043: // TObjEneBm5Wolf
+    case 0x0082: // TObjEneMe3ShinowaReal
+      is_mismatched = ((prev.param2 >= 1) != (current.param2 >= 1));
+      break;
+    case 0x00D6: // TObjEneBm9Mericarol
+      // If 0, 1, or 2, must match exactly; otherwise, both must just be > 2
+      is_mismatched = (prev.param6 > 2) ? (current.param6 <= 2) : (prev.param6 != current.param6);
+      break;
+    case 0x0040: // TObjEneMoja
+    case 0x00D4: // TObjEneMe3StelthReal
+    case 0x00D5: // TObjEneMerillLia
+    case 0x00D7: // TObjEneBm5GibonU
+    case 0x00DD: // TObjEneDolmOlm
+    case 0x00E0: // TObjEneMe3SinowZoaReal or TObjEneEpsilonBody
+      is_mismatched = ((prev.param6 > 0) != (current.param6 > 0));
+      break;
+    case 0x0111:
+      is_mismatched = ((prev.param2 == 0) != (current.param2 == 0));
+      break;
+    case 0x0044: // TObjEneBeast
+    case 0x0063: // TObjEneShark
+    case 0x00A6: // TObjEneDimedian
+    case 0x0115:
+    case 0x0117:
+      is_mismatched = (std::clamp<int16_t>(prev.param6, 0, 2) != std::clamp<int16_t>(current.param6, 0, 2));
+      break;
+    case 0x0112:
+    case 0x0114:
+    case 0x0116:
+    case 0x0119:
+      is_mismatched = ((prev.param6 & 1) != (current.param6 & 1));
+      break;
+  }
+  if (is_mismatched) {
     return 500.0;
   }
   // Room or wave_number changes are pretty bad, but small variances in position and params are tolerated
@@ -5108,17 +5358,17 @@ static double event_edit_cost(const MapFile::Event1Entry& prev, const MapFile::E
       : 0.0;
 }
 
-void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_file) {
+void SuperMap::add_map_file(Version this_v, std::shared_ptr<const MapFile> this_map_file) {
   auto& this_entities = this->version(this_v);
   if (this_entities.map_file) {
-    throw logic_error("a map file is already present for this version");
+    throw std::logic_error("a map file is already present for this version");
   }
   this_entities.map_file = this_map_file;
 
   for (uint8_t floor = 0; floor < 0x12; floor++) {
     const auto& fc = this_map_file->floor(floor);
     if (fc.events2 || fc.random_enemy_locations_data || fc.random_enemy_definitions_data) {
-      throw logic_error("cannot add map file with random segments to a supermap");
+      throw std::logic_error("cannot add map file with random segments to a supermap");
     }
   }
 
@@ -5143,11 +5393,11 @@ void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_f
                                     double (*add_cost)(const EntryT&),
                                     double (*delete_cost)(const EntryT&),
                                     double (*edit_cost)(const EntryT&, const EntryT& current),
-                                    const vector<shared_ptr<EntityT>>& prev_entities,
+                                    const std::vector<std::shared_ptr<EntityT>>& prev_entities,
                                     size_t prev_entities_start_index,
                                     auto&& link_existing,
                                     auto&& add_new,
-                                    const unordered_map<uint64_t, vector<shared_ptr<EntityT>>>& semantic_hash_index) {
+                                    const std::unordered_map<uint64_t, std::vector<std::shared_ptr<EntityT>>>& semantic_hash_index) {
       auto edit_path = compute_edit_path(
           prev_sets, prev_set_count, this_sets, this_set_count, add_cost, delete_cost, edit_cost);
 
@@ -5155,7 +5405,7 @@ void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_f
       if (used_prev_entities.size() != this_set_count) {
         throw std::logic_error("incorrect previous entity list length");
       }
-      unordered_set<const EntityT*> used_prev_entities_set;
+      std::unordered_set<const EntityT*> used_prev_entities_set;
       for (const auto& ent : used_prev_entities) {
         used_prev_entities_set.emplace(ent.get());
       }
@@ -5173,7 +5423,7 @@ void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_f
                 break;
               }
             }
-          } catch (const out_of_range&) {
+          } catch (const std::out_of_range&) {
           }
         }
 
@@ -5212,8 +5462,8 @@ void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_f
           object_set_edit_cost,
           prev_entities.objects,
           prev_entities.object_floor_start_indexes.at(floor),
-          bind(&SuperMap::link_object_version, this, placeholders::_1, placeholders::_2, placeholders::_3),
-          bind(&SuperMap::add_object, this, placeholders::_1, placeholders::_2, placeholders::_3),
+          bind(&SuperMap::link_object_version, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+          bind(&SuperMap::add_object, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
           this->objects_for_semantic_hash);
     }
 
@@ -5235,8 +5485,8 @@ void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_f
           enemy_set_edit_cost,
           prev_entities.enemy_sets,
           prev_entities.enemy_set_floor_start_indexes.at(floor),
-          bind(&SuperMap::link_enemy_version_and_children, this, placeholders::_1, placeholders::_2, placeholders::_3),
-          bind(&SuperMap::add_enemy_and_children, this, placeholders::_1, placeholders::_2, placeholders::_3),
+          bind(&SuperMap::link_enemy_version_and_children, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+          bind(&SuperMap::add_enemy_and_children, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
           this->enemy_sets_for_semantic_hash);
     }
 
@@ -5258,27 +5508,27 @@ void SuperMap::add_map_file(Version this_v, shared_ptr<const MapFile> this_map_f
           event_edit_cost,
           prev_entities.events,
           prev_entities.event_floor_start_indexes.at(floor),
-          bind(&SuperMap::link_event_version, this, placeholders::_1, placeholders::_2, placeholders::_3, this_sf.event_action_stream, this_sf.event_action_stream_bytes),
-          bind(&SuperMap::add_event, this, placeholders::_1, placeholders::_2, placeholders::_3, this_sf.event_action_stream, this_sf.event_action_stream_bytes),
+          bind(&SuperMap::link_event_version, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, this_sf.event_action_stream, this_sf.event_action_stream_bytes),
+          bind(&SuperMap::add_event, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, this_sf.event_action_stream, this_sf.event_action_stream_bytes),
           this->events_for_semantic_hash);
     }
   }
 }
 
-vector<shared_ptr<const SuperMap::Object>> SuperMap::objects_for_floor_room_group(
+std::vector<std::shared_ptr<const SuperMap::Object>> SuperMap::objects_for_floor_room_group(
     Version version, uint8_t floor, uint16_t room, uint16_t group) const {
   const auto& entities = this->version(version);
   uint64_t k = room_index_key(floor, room, group);
-  vector<shared_ptr<const Object>> ret;
+  std::vector<std::shared_ptr<const Object>> ret;
   for (auto its = entities.object_for_floor_room_and_group.equal_range(k); its.first != its.second; its.first++) {
     ret.emplace_back(its.first->second);
   }
   return ret;
 }
 
-vector<shared_ptr<const SuperMap::Object>> SuperMap::doors_for_switch_flag(
+std::vector<std::shared_ptr<const SuperMap::Object>> SuperMap::doors_for_switch_flag(
     Version version, uint8_t floor, uint8_t switch_flag) const {
-  vector<shared_ptr<const Object>> ret;
+  std::vector<std::shared_ptr<const Object>> ret;
   const auto& entities = this->version(version);
   for (auto its = entities.door_for_floor_and_switch_flag.equal_range((floor << 8) | switch_flag);
       its.first != its.second;
@@ -5288,23 +5538,23 @@ vector<shared_ptr<const SuperMap::Object>> SuperMap::doors_for_switch_flag(
   return ret;
 }
 
-shared_ptr<const SuperMap::Enemy> SuperMap::enemy_for_index(Version version, uint16_t enemy_index) const {
+std::shared_ptr<const SuperMap::Enemy> SuperMap::enemy_for_index(Version version, uint16_t enemy_index) const {
   const auto& entities = this->version(version);
 
   if (entities.enemies.empty()) {
-    throw out_of_range("no enemies defined");
+    throw std::out_of_range("no enemies defined");
   }
   if (enemy_index >= entities.enemies.size()) {
-    throw out_of_range("enemy ID out of range");
+    throw std::out_of_range("enemy ID out of range");
   }
   return entities.enemies[enemy_index];
 }
 
-shared_ptr<const SuperMap::Enemy> SuperMap::enemy_for_floor_type(Version version, uint8_t floor, EnemyType type) const {
+std::shared_ptr<const SuperMap::Enemy> SuperMap::enemy_for_floor_type(Version version, uint8_t floor, EnemyType type) const {
   const auto& entities = this->version(version);
 
   if (entities.enemies.empty()) {
-    throw out_of_range("no enemies defined");
+    throw std::out_of_range("no enemies defined");
   }
   size_t start_z = entities.enemy_floor_start_indexes.at(floor);
   size_t end_z = (floor < entities.enemy_floor_start_indexes.size() - 1)
@@ -5316,36 +5566,36 @@ shared_ptr<const SuperMap::Enemy> SuperMap::enemy_for_floor_type(Version version
       return ene;
     }
   }
-  throw out_of_range("enemy not found");
+  throw std::out_of_range("enemy not found");
 }
 
-vector<shared_ptr<const SuperMap::Enemy>> SuperMap::enemies_for_floor_room_wave(
+std::vector<std::shared_ptr<const SuperMap::Enemy>> SuperMap::enemies_for_floor_room_wave(
     Version version, uint8_t floor, uint16_t room, uint16_t wave_number) const {
   const auto& entities = this->version(version);
 
   uint64_t k = room_index_key(floor, room, wave_number);
-  vector<shared_ptr<const Enemy>> ret;
+  std::vector<std::shared_ptr<const Enemy>> ret;
   for (auto its = entities.enemy_for_floor_room_and_wave_number.equal_range(k); its.first != its.second; its.first++) {
     ret.emplace_back(its.first->second);
   }
   return ret;
 }
 
-vector<shared_ptr<const SuperMap::Event>> SuperMap::events_for_id(Version version, uint8_t floor, uint32_t event_id) const {
+std::vector<std::shared_ptr<const SuperMap::Event>> SuperMap::events_for_id(Version version, uint8_t floor, uint32_t event_id) const {
   const auto& entities = this->version(version);
   uint64_t k = (static_cast<uint64_t>(floor) << 32) | event_id;
-  vector<shared_ptr<const Event>> ret;
+  std::vector<std::shared_ptr<const Event>> ret;
   for (auto its = entities.event_for_floor_and_event_id.equal_range(k); its.first != its.second; its.first++) {
     ret.emplace_back(its.first->second);
   }
   return ret;
 }
 
-vector<shared_ptr<const SuperMap::Event>> SuperMap::events_for_floor(Version version, uint8_t floor) const {
+std::vector<std::shared_ptr<const SuperMap::Event>> SuperMap::events_for_floor(Version version, uint8_t floor) const {
   const auto& entities = this->version(version);
   uint64_t k_start = (static_cast<uint64_t>(floor) << 32);
   uint64_t k_end = (static_cast<uint64_t>(floor + 1) << 32);
-  vector<shared_ptr<const Event>> ret;
+  std::vector<std::shared_ptr<const Event>> ret;
   for (auto it = entities.event_for_floor_and_event_id.lower_bound(k_start);
       (it != entities.event_for_floor_and_event_id.end()) && (it->first < k_end);
       it++) {
@@ -5354,23 +5604,23 @@ vector<shared_ptr<const SuperMap::Event>> SuperMap::events_for_floor(Version ver
   return ret;
 }
 
-vector<shared_ptr<const SuperMap::Event>> SuperMap::events_for_floor_room_wave(
+std::vector<std::shared_ptr<const SuperMap::Event>> SuperMap::events_for_floor_room_wave(
     Version version, uint8_t floor, uint16_t room, uint16_t wave_number) const {
   const auto& entities = this->version(version);
   uint64_t k = room_index_key(floor, room, wave_number);
-  vector<shared_ptr<const Event>> ret;
+  std::vector<std::shared_ptr<const Event>> ret;
   for (auto its = entities.event_for_floor_room_and_wave_number.equal_range(k); its.first != its.second; its.first++) {
     ret.emplace_back(its.first->second);
   }
   return ret;
 }
 
-unordered_map<EnemyType, size_t> SuperMap::count_enemy_sets_for_version(Version version) const {
-  unordered_map<EnemyType, size_t> ret;
+std::unordered_map<EnemyType, size_t> SuperMap::count_enemy_sets_for_version(Version version) const {
+  std::unordered_map<EnemyType, size_t> ret;
   for (const auto& ene : this->version(version).enemy_sets) {
     try {
       ret.at(ene->type) += 1;
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       ret.emplace(ene->type, 1);
     }
   }
@@ -5443,7 +5693,7 @@ SuperMap::EfficiencyStats SuperMap::efficiency() const {
 void SuperMap::verify() const {
   for (size_t super_id = 0; super_id < this->objects.size(); super_id++) {
     if (this->objects[super_id]->super_id != super_id) {
-      throw logic_error("object super_id is incorrect");
+      throw std::logic_error("object super_id is incorrect");
     }
   }
 
@@ -5453,30 +5703,30 @@ void SuperMap::verify() const {
     for (size_t super_id = 0; super_id < this->enemies.size(); super_id++) {
       const auto& ene = this->enemies[super_id];
       if (ene->super_id != super_id) {
-        throw logic_error("enemy super_id is incorrect");
+        throw std::logic_error("enemy super_id is incorrect");
       }
       if (ene->child_index == 0) {
         super_set_id++;
         prev_child_index = 0;
       } else {
         if (ene->child_index != ++prev_child_index) {
-          throw logic_error("enemy child indexes out of order");
+          throw std::logic_error("enemy child indexes out of order");
         }
       }
       if (ene->super_set_id != super_set_id) {
-        throw logic_error(std::format(
+        throw std::logic_error(std::format(
             "enemy super_set_id is incorrect; expected S-{:03X}, received S-{:03X}", super_set_id, ene->super_set_id));
       }
     }
     if (super_set_id != this->enemy_sets.size() - 1) {
-      throw logic_error(std::format(
+      throw std::logic_error(std::format(
           "not all enemy sets are in the enemies list; ended with 0x{:X}, expected 0x{:X}",
           super_set_id, this->enemy_sets.size()));
     }
   }
   for (size_t super_id = 0; super_id < this->events.size(); super_id++) {
     if (this->events[super_id]->super_id != super_id) {
-      throw logic_error("event super_id is incorrect");
+      throw std::logic_error("event super_id is incorrect");
     }
   }
 
@@ -5484,42 +5734,42 @@ void SuperMap::verify() const {
     const auto& entities = this->version(v);
 
     if (entities.object_floor_start_indexes.at(0) != 0) {
-      throw logic_error("object floor start index for floor 0 is incorrect");
+      throw std::logic_error("object floor start index for floor 0 is incorrect");
     }
     if (entities.enemy_floor_start_indexes.at(0) != 0) {
-      throw logic_error("object floor start index for floor 0 is incorrect");
+      throw std::logic_error("object floor start index for floor 0 is incorrect");
     }
     if (entities.enemy_set_floor_start_indexes.at(0) != 0) {
-      throw logic_error("object floor start index for floor 0 is incorrect");
+      throw std::logic_error("object floor start index for floor 0 is incorrect");
     }
     if (entities.event_floor_start_indexes.at(0) != 0) {
-      throw logic_error("object floor start index for floor 0 is incorrect");
+      throw std::logic_error("object floor start index for floor 0 is incorrect");
     }
 
     uint8_t floor = 0;
     for (size_t object_index = 0; object_index < entities.objects.size(); object_index++) {
       const auto& obj = entities.objects[object_index];
       if (obj->floor < floor) {
-        throw logic_error("objects out of floor order");
+        throw std::logic_error("objects out of floor order");
       }
       while (floor < obj->floor) {
         floor++;
         if (entities.object_floor_start_indexes.at(floor) != object_index) {
-          throw logic_error("object floor start index is incorrect");
+          throw std::logic_error("object floor start index is incorrect");
         }
       }
       const auto& obj_ver = obj->version(v);
       if (!obj_ver.set_entry) {
-        throw logic_error("object set entry is missing");
+        throw std::logic_error("object set entry is missing");
       }
       if (obj_ver.relative_object_index != object_index) {
-        throw logic_error("object relative index is incorrect");
+        throw std::logic_error("object relative index is incorrect");
       }
     }
     while (floor < 0x12) {
       floor++;
       if ((floor < 0x12) && (entities.object_floor_start_indexes.at(floor) != entities.objects.size())) {
-        throw logic_error("object floor start index is incorrect");
+        throw std::logic_error("object floor start index is incorrect");
       }
     }
 
@@ -5530,43 +5780,43 @@ void SuperMap::verify() const {
       if (ene->child_index == 0) {
         enemy_set_index++;
         if (entities.enemy_sets.at(enemy_set_index) != ene) {
-          throw logic_error("enemy set does not match expected enemy");
+          throw std::logic_error("enemy set does not match expected enemy");
         }
       }
       if (ene->floor < floor) {
-        throw logic_error("enemies out of floor order");
+        throw std::logic_error("enemies out of floor order");
       }
       while (floor < ene->floor) {
         floor++;
         if (entities.enemy_floor_start_indexes.at(floor) != enemy_index) {
-          throw logic_error("enemy floor start index is incorrect");
+          throw std::logic_error("enemy floor start index is incorrect");
         }
         if (entities.enemy_set_floor_start_indexes.at(floor) != enemy_set_index) {
-          throw logic_error("enemy set floor start index is incorrect");
+          throw std::logic_error("enemy set floor start index is incorrect");
         }
       }
       const auto& ene_ver = ene->version(v);
       if (!ene_ver.set_entry) {
-        throw logic_error("enemy set entry is missing");
+        throw std::logic_error("enemy set entry is missing");
       }
       if (ene_ver.relative_enemy_index != enemy_index) {
-        throw logic_error("enemy relative index is incorrect");
+        throw std::logic_error("enemy relative index is incorrect");
       }
       if (ene_ver.relative_set_index != enemy_set_index) {
-        throw logic_error("enemy relative set index is incorrect");
+        throw std::logic_error("enemy relative set index is incorrect");
       }
     }
     if (enemy_set_index != entities.enemy_sets.size() - 1) {
-      throw logic_error("not all enemy sets were checked");
+      throw std::logic_error("not all enemy sets were checked");
     }
     while (floor < 0x12) {
       floor++;
       if (floor < 0x12) {
         if (entities.enemy_floor_start_indexes.at(floor) != entities.enemies.size()) {
-          throw logic_error("enemy floor start index is incorrect");
+          throw std::logic_error("enemy floor start index is incorrect");
         }
         if (entities.enemy_set_floor_start_indexes.at(floor) != entities.enemy_sets.size()) {
-          throw logic_error("enemy set floor start index is incorrect");
+          throw std::logic_error("enemy set floor start index is incorrect");
         }
       }
     }
@@ -5575,26 +5825,26 @@ void SuperMap::verify() const {
     for (size_t event_index = 0; event_index < entities.events.size(); event_index++) {
       const auto& ev = entities.events[event_index];
       if (ev->floor < floor) {
-        throw logic_error("events out of floor order");
+        throw std::logic_error("events out of floor order");
       }
       while (floor < ev->floor) {
         floor++;
         if (entities.event_floor_start_indexes.at(floor) != event_index) {
-          throw logic_error("event floor start index is incorrect");
+          throw std::logic_error("event floor start index is incorrect");
         }
       }
       const auto& ev_ver = ev->version(v);
       if (!ev_ver.set_entry) {
-        throw logic_error("event entry is missing");
+        throw std::logic_error("event entry is missing");
       }
       if (ev_ver.relative_event_index != event_index) {
-        throw logic_error("event relative index is incorrect");
+        throw std::logic_error("event relative index is incorrect");
       }
     }
     while (floor < 0x12) {
       floor++;
       if ((floor < 0x12) && (entities.event_floor_start_indexes.at(floor) != entities.events.size())) {
-        throw logic_error("event floor start index is incorrect");
+        throw std::logic_error("event floor start index is incorrect");
       }
     }
   }
@@ -5716,7 +5966,7 @@ MapState::RareEnemyRates::RareEnemyRates(const phosg::JSON& json)
       dorphon_eclair(json.get_int("DorphonEclair", DEFAULT_RARE_ENEMY_RATE_V3)),
       kondrieu(json.get_int("Kondrieu", DEFAULT_RARE_BOSS_RATE_V4)) {}
 
-string MapState::RareEnemyRates::str() const {
+std::string MapState::RareEnemyRates::str() const {
   return std::format("RareEnemyRates(hildeblue={:08X}, rappy={:08X}, nar_lily={:08X}, pouilly_slime={:08X}, mericarand={:08X}, merissa_aa={:08X}, pazuzu={:08X}, dorphon_eclair={:08X}, kondrieu={:08X})",
       this->hildeblue, this->rappy, this->nar_lily, this->pouilly_slime, this->mericarand,
       this->merissa_aa, this->pazuzu, this->dorphon_eclair, this->kondrieu);
@@ -5765,8 +6015,8 @@ uint32_t MapState::RareEnemyRates::get(EnemyType type) const {
   }
 }
 
-const shared_ptr<const MapState::RareEnemyRates> MapState::NO_RARE_ENEMIES = make_shared<MapState::RareEnemyRates>(0, 0, 0);
-const shared_ptr<const MapState::RareEnemyRates> MapState::DEFAULT_RARE_ENEMIES = make_shared<MapState::RareEnemyRates>(
+const std::shared_ptr<const MapState::RareEnemyRates> MapState::NO_RARE_ENEMIES = std::make_shared<MapState::RareEnemyRates>(0, 0, 0);
+const std::shared_ptr<const MapState::RareEnemyRates> MapState::DEFAULT_RARE_ENEMIES = std::make_shared<MapState::RareEnemyRates>(
     MapState::RareEnemyRates::DEFAULT_RARE_ENEMY_RATE_V3,
     MapState::RareEnemyRates::DEFAULT_MERICARAND_RATE_V3,
     MapState::RareEnemyRates::DEFAULT_RARE_BOSS_RATE_V4);
@@ -5942,22 +6192,22 @@ void MapState::reset() {
   }
 }
 
-void MapState::index_super_map(const FloorConfig& fc, shared_ptr<RandomGenerator> rand_crypt) {
+void MapState::index_super_map(const FloorConfig& fc, std::shared_ptr<RandomGenerator> rand_crypt) {
   if (!fc.super_map) {
-    throw logic_error("cannot index floor config with no map definition");
+    throw std::logic_error("cannot index floor config with no map definition");
   }
   if (fc.super_map->floor_to_area != this->floor_to_area) {
-    throw runtime_error("supermaps have different floor configs");
+    throw std::runtime_error("supermaps have different floor configs");
   }
 
   for (const auto& obj : fc.super_map->all_objects()) {
-    auto& obj_st = this->object_states.emplace_back(make_shared<ObjectState>());
+    auto& obj_st = this->object_states.emplace_back(std::make_shared<ObjectState>());
     obj_st->k_id = this->object_states.size() - 1;
     obj_st->super_obj = obj;
   }
 
   for (const auto& ene : fc.super_map->all_enemies()) {
-    auto& ene_st = this->enemy_states.emplace_back(make_shared<EnemyState>());
+    auto& ene_st = this->enemy_states.emplace_back(std::make_shared<EnemyState>());
 
     if (ene->child_index == 0) {
       this->enemy_set_states.emplace_back(ene_st);
@@ -5978,22 +6228,15 @@ void MapState::index_super_map(const FloorConfig& fc, shared_ptr<RandomGenerator
     }
 
     // Handle random rare enemies and difficulty-based effects
-    EnemyType type;
-    switch (ene->type) {
-      case EnemyType::DARK_FALZ_3:
-        type = (this->difficulty == Difficulty::NORMAL) ? EnemyType::DARK_FALZ_2 : EnemyType::DARK_FALZ_3;
-        break;
-      case EnemyType::DARVANT:
-        type = (this->difficulty == Difficulty::ULTIMATE) ? EnemyType::DARVANT_ULTIMATE : EnemyType::DARVANT;
-        break;
-      default:
-        type = ene->type;
+    EnemyType type = ene->type;
+    if ((type == EnemyType::DARK_FALZ_3) && (this->difficulty == Difficulty::NORMAL)) {
+      type = EnemyType::DARK_FALZ_2;
     }
 
     uint8_t area = fc.super_map->area_for_floor(ene->floor);
     auto rare_type = type_definition_for_enemy(type).rare_type(area, this->event);
     if ((type == EnemyType::MERICARAND) || (rare_type != type)) {
-      unordered_map<uint32_t, float> det_cache;
+      std::unordered_map<uint32_t, float> det_cache;
       uint32_t bb_rare_rate = this->bb_rare_rates->get(type);
       for (Version v : ALL_NON_PATCH_VERSIONS) {
         // Skip this version if the enemy doesn't exist there
@@ -6016,11 +6259,8 @@ void MapState::index_super_map(const FloorConfig& fc, shared_ptr<RandomGenerator
           float det;
           try {
             det = det_cache.at(seed);
-          } catch (const out_of_range&) {
-            // TODO: We only need the first value from this crypt, so it's unfortunate that we have to initialize the
-            // entire thing. Find a way to make this faster.
-            PSOV2Encryption crypt(seed);
-            det = (static_cast<float>((crypt.next() >> 16) & 0xFFFF) / 65536.0f);
+          } catch (const std::out_of_range&) {
+            det = (static_cast<float>((PSOV2Encryption::single(seed) >> 16) & 0xFFFF) / 65536.0f);
             det_cache.emplace(seed, det);
           }
 
@@ -6055,7 +6295,7 @@ void MapState::index_super_map(const FloorConfig& fc, shared_ptr<RandomGenerator
   }
 
   for (const auto& ev : fc.super_map->all_events()) {
-    auto& ev_st = this->event_states.emplace_back(make_shared<EventState>());
+    auto& ev_st = this->event_states.emplace_back(std::make_shared<EventState>());
     ev_st->w_id = this->event_states.size() - 1;
     ev_st->super_ev = ev;
   }
@@ -6072,13 +6312,13 @@ void MapState::compute_dynamic_object_base_indexes() {
       if (fc.super_map) {
         auto& last_obj_index = this->dynamic_obj_base_index_for_version[static_cast<size_t>(v)];
         size_t base_index = fc.base_indexes_for_version(v).base_object_index;
-        last_obj_index = max<size_t>(base_index + fc.super_map->version(v).objects.size(), last_obj_index);
+        last_obj_index = std::max<size_t>(base_index + fc.super_map->version(v).objects.size(), last_obj_index);
       }
     }
   }
 }
 
-uint16_t MapState::index_for_object_state(Version version, shared_ptr<const ObjectState> obj_st) const {
+uint16_t MapState::index_for_object_state(Version version, std::shared_ptr<const ObjectState> obj_st) const {
   if (obj_st->super_obj) {
     uint16_t relative_index = obj_st->super_obj->version(version).relative_object_index;
     return (relative_index == 0xFFFF)
@@ -6090,28 +6330,28 @@ uint16_t MapState::index_for_object_state(Version version, shared_ptr<const Obje
   }
 }
 
-uint16_t MapState::index_for_enemy_state(Version version, shared_ptr<const EnemyState> ene_st) const {
+uint16_t MapState::index_for_enemy_state(Version version, std::shared_ptr<const EnemyState> ene_st) const {
   uint16_t relative_index = ene_st->super_ene->version(version).relative_enemy_index;
   return (relative_index == 0xFFFF)
       ? 0xFFFF
       : (relative_index + this->floor_config(ene_st->super_ene->floor).base_indexes_for_version(version).base_enemy_index);
 }
 
-uint16_t MapState::set_index_for_enemy_state(Version version, shared_ptr<const EnemyState> ene_st) const {
+uint16_t MapState::set_index_for_enemy_state(Version version, std::shared_ptr<const EnemyState> ene_st) const {
   uint16_t relative_set_index = ene_st->super_ene->version(version).relative_set_index;
   return (relative_set_index == 0xFFFF)
       ? 0xFFFF
       : (relative_set_index + this->floor_config(ene_st->super_ene->floor).base_indexes_for_version(version).base_enemy_set_index);
 }
 
-uint16_t MapState::index_for_event_state(Version version, shared_ptr<const EventState> ev_st) const {
+uint16_t MapState::index_for_event_state(Version version, std::shared_ptr<const EventState> ev_st) const {
   uint16_t relative_index = ev_st->super_ev->version(version).relative_event_index;
   return (relative_index == 0xFFFF)
       ? 0xFFFF
       : (relative_index + this->floor_config(ev_st->super_ev->floor).base_indexes_for_version(version).base_event_index);
 }
 
-shared_ptr<MapState::ObjectState> MapState::object_state_for_index(Version version, uint16_t object_index) {
+std::shared_ptr<MapState::ObjectState> MapState::object_state_for_index(Version version, uint16_t object_index) {
   size_t dynamic_obj_base_index = this->dynamic_obj_base_index_for_version.at(static_cast<size_t>(version));
   if (object_index < dynamic_obj_base_index) {
     int8_t floor;
@@ -6120,49 +6360,49 @@ shared_ptr<MapState::ObjectState> MapState::object_state_for_index(Version versi
       size_t base_object_index = fc.base_indexes_for_version(version).base_object_index;
       if (object_index >= base_object_index) {
         if (!fc.super_map) {
-          throw out_of_range("there are no objects on the specified floor");
+          throw std::out_of_range("there are no objects on the specified floor");
         }
         const auto& obj = fc.super_map->version(version).objects.at(object_index - base_object_index);
         return this->object_states.at(fc.base_super_ids.base_object_index + obj->super_id);
       }
     }
-    throw out_of_range("the specified enemy does not exist");
+    throw std::out_of_range("the specified enemy does not exist");
 
   } else {
     size_t k_id_delta = object_index - dynamic_obj_base_index;
-    auto obj_st = make_shared<ObjectState>();
+    auto obj_st = std::make_shared<ObjectState>();
     obj_st->k_id = this->dynamic_obj_base_k_id + k_id_delta;
     obj_st->super_obj = nullptr;
     return obj_st;
   }
 }
 
-shared_ptr<MapState::ObjectState> MapState::object_state_for_index(Version version, uint8_t floor, uint16_t object_index) {
+std::shared_ptr<MapState::ObjectState> MapState::object_state_for_index(Version version, uint8_t floor, uint16_t object_index) {
   size_t dynamic_obj_base_index = this->dynamic_obj_base_index_for_version.at(static_cast<size_t>(version));
   if (object_index < dynamic_obj_base_index) {
     const auto& fc = this->floor_config(floor);
     size_t base_object_index = fc.base_indexes_for_version(version).base_object_index;
     if (object_index < base_object_index) {
-      throw runtime_error("object is not on the specified floor");
+      throw std::runtime_error("object is not on the specified floor");
     }
     if (!fc.super_map) {
-      throw out_of_range("there are no objects on the specified floor");
+      throw std::out_of_range("there are no objects on the specified floor");
     }
     const auto& obj = fc.super_map->version(version).objects.at(object_index - base_object_index);
     return this->object_states.at(fc.base_super_ids.base_object_index + obj->super_id);
 
   } else {
     size_t k_id_delta = object_index - dynamic_obj_base_index;
-    auto obj_st = make_shared<ObjectState>();
+    auto obj_st = std::make_shared<ObjectState>();
     obj_st->k_id = this->dynamic_obj_base_k_id + k_id_delta;
     obj_st->super_obj = nullptr;
     return obj_st;
   }
 }
 
-vector<shared_ptr<MapState::ObjectState>> MapState::object_states_for_floor_room_group(
+std::vector<std::shared_ptr<MapState::ObjectState>> MapState::object_states_for_floor_room_group(
     Version version, uint8_t floor, uint16_t room, uint16_t group) {
-  vector<shared_ptr<ObjectState>> ret;
+  std::vector<std::shared_ptr<ObjectState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     for (const auto& obj : fc.super_map->objects_for_floor_room_group(version, floor, room, group)) {
@@ -6172,9 +6412,9 @@ vector<shared_ptr<MapState::ObjectState>> MapState::object_states_for_floor_room
   return ret;
 }
 
-vector<shared_ptr<MapState::ObjectState>> MapState::door_states_for_switch_flag(
+std::vector<std::shared_ptr<MapState::ObjectState>> MapState::door_states_for_switch_flag(
     Version version, uint8_t floor, uint8_t switch_flag) {
-  vector<shared_ptr<ObjectState>> ret;
+  std::vector<std::shared_ptr<ObjectState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     for (const auto& obj : fc.super_map->doors_for_switch_flag(version, floor, switch_flag)) {
@@ -6184,61 +6424,61 @@ vector<shared_ptr<MapState::ObjectState>> MapState::door_states_for_switch_flag(
   return ret;
 }
 
-shared_ptr<MapState::EnemyState> MapState::enemy_state_for_index(Version version, uint16_t enemy_index) {
+std::shared_ptr<MapState::EnemyState> MapState::enemy_state_for_index(Version version, uint16_t enemy_index) {
   int8_t floor;
   for (floor = this->floor_config_entries.size() - 1; floor >= 0; floor--) {
     const auto& fc = this->floor_config_entries[floor];
     size_t base_enemy_index = fc.base_indexes_for_version(version).base_enemy_index;
     if (enemy_index >= base_enemy_index) {
       if (!fc.super_map) {
-        throw out_of_range("there are no enemies on the specified floor");
+        throw std::out_of_range("there are no enemies on the specified floor");
       }
       const auto& ene = fc.super_map->version(version).enemies.at(enemy_index - base_enemy_index);
       return this->enemy_states.at(fc.base_super_ids.base_enemy_index + ene->super_id);
     }
   }
-  throw out_of_range("the specified enemy does not exist");
+  throw std::out_of_range("the specified enemy does not exist");
 }
 
-shared_ptr<MapState::EnemyState> MapState::enemy_state_for_index(Version version, uint8_t floor, uint16_t enemy_index) {
+std::shared_ptr<MapState::EnemyState> MapState::enemy_state_for_index(Version version, uint8_t floor, uint16_t enemy_index) {
   const auto& fc = this->floor_config(floor);
   size_t base_enemy_index = fc.base_indexes_for_version(version).base_enemy_index;
   if (enemy_index < base_enemy_index) {
-    throw runtime_error("enemy is not on the specified floor");
+    throw std::runtime_error("enemy is not on the specified floor");
   }
   if (!fc.super_map) {
-    throw out_of_range("there are no enemies on the specified floor");
+    throw std::out_of_range("there are no enemies on the specified floor");
   }
   const auto& ene = fc.super_map->version(version).enemies.at(enemy_index - base_enemy_index);
   return this->enemy_states.at(fc.base_super_ids.base_enemy_index + ene->super_id);
 }
 
-shared_ptr<MapState::EnemyState> MapState::enemy_state_for_set_index(Version version, uint8_t floor, uint16_t enemy_set_index) {
+std::shared_ptr<MapState::EnemyState> MapState::enemy_state_for_set_index(Version version, uint8_t floor, uint16_t enemy_set_index) {
   const auto& fc = this->floor_config(floor);
   size_t base_enemy_set_index = fc.base_indexes_for_version(version).base_enemy_set_index;
   if (enemy_set_index < base_enemy_set_index) {
-    throw runtime_error("enemy is not on the specified floor");
+    throw std::runtime_error("enemy is not on the specified floor");
   }
   if (!fc.super_map) {
-    throw out_of_range("there are no enemies on the specified floor");
+    throw std::out_of_range("there are no enemies on the specified floor");
   }
   const auto& ene = fc.super_map->version(version).enemies.at(enemy_set_index - base_enemy_set_index);
   return this->enemy_states.at(fc.base_super_ids.base_enemy_set_index + ene->super_set_id);
 }
 
-shared_ptr<MapState::EnemyState> MapState::enemy_state_for_floor_type(Version version, uint8_t floor, EnemyType type) {
-  vector<shared_ptr<EnemyState>> ret;
+std::shared_ptr<MapState::EnemyState> MapState::enemy_state_for_floor_type(Version version, uint8_t floor, EnemyType type) {
+  std::vector<std::shared_ptr<EnemyState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     const auto& ene = fc.super_map->enemy_for_floor_type(version, floor, type);
     return this->enemy_states.at(fc.base_super_ids.base_enemy_index + ene->super_id);
   }
-  throw out_of_range("map definition missing for floor");
+  throw std::out_of_range("map definition missing for floor");
 }
 
-vector<shared_ptr<MapState::EnemyState>> MapState::enemy_states_for_floor_room_wave(
+std::vector<std::shared_ptr<MapState::EnemyState>> MapState::enemy_states_for_floor_room_wave(
     Version version, uint8_t floor, uint16_t room, uint16_t wave_number) {
-  vector<shared_ptr<EnemyState>> ret;
+  std::vector<std::shared_ptr<EnemyState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     for (const auto& ene : fc.super_map->enemies_for_floor_room_wave(version, floor, room, wave_number)) {
@@ -6248,21 +6488,21 @@ vector<shared_ptr<MapState::EnemyState>> MapState::enemy_states_for_floor_room_w
   return ret;
 }
 
-shared_ptr<MapState::EventState> MapState::event_state_for_index(Version version, uint8_t floor, uint16_t event_index) {
+std::shared_ptr<MapState::EventState> MapState::event_state_for_index(Version version, uint8_t floor, uint16_t event_index) {
   const auto& fc = this->floor_config(floor);
   size_t base_event_index = fc.base_indexes_for_version(version).base_event_index;
   if (event_index < base_event_index) {
-    throw runtime_error("event is not on the specified floor");
+    throw std::runtime_error("event is not on the specified floor");
   }
   if (!fc.super_map) {
-    throw out_of_range("there are no events on the specified floor");
+    throw std::out_of_range("there are no events on the specified floor");
   }
   const auto& ev = fc.super_map->version(version).events.at(event_index - base_event_index);
   return this->event_states.at(fc.base_super_ids.base_event_index + ev->super_id);
 }
 
-vector<shared_ptr<MapState::EventState>> MapState::event_states_for_id(Version version, uint8_t floor, uint32_t event_id) {
-  vector<shared_ptr<EventState>> ret;
+std::vector<std::shared_ptr<MapState::EventState>> MapState::event_states_for_id(Version version, uint8_t floor, uint32_t event_id) {
+  std::vector<std::shared_ptr<EventState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     for (const auto& ev : fc.super_map->events_for_id(version, floor, event_id)) {
@@ -6272,8 +6512,8 @@ vector<shared_ptr<MapState::EventState>> MapState::event_states_for_id(Version v
   return ret;
 }
 
-vector<shared_ptr<MapState::EventState>> MapState::event_states_for_floor(Version version, uint8_t floor) {
-  vector<shared_ptr<EventState>> ret;
+std::vector<std::shared_ptr<MapState::EventState>> MapState::event_states_for_floor(Version version, uint8_t floor) {
+  std::vector<std::shared_ptr<EventState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     for (const auto& ev : fc.super_map->events_for_floor(version, floor)) {
@@ -6283,9 +6523,9 @@ vector<shared_ptr<MapState::EventState>> MapState::event_states_for_floor(Versio
   return ret;
 }
 
-vector<shared_ptr<MapState::EventState>> MapState::event_states_for_floor_room_wave(
+std::vector<std::shared_ptr<MapState::EventState>> MapState::event_states_for_floor_room_wave(
     Version version, uint8_t floor, uint16_t room, uint16_t wave_number) {
-  vector<shared_ptr<EventState>> ret;
+  std::vector<std::shared_ptr<EventState>> ret;
   auto& fc = this->floor_config(floor);
   if (fc.super_map) {
     for (const auto& ev : fc.super_map->events_for_floor_room_wave(version, floor, room, wave_number)) {
@@ -6305,7 +6545,7 @@ void MapState::import_object_states_from_sync(
     }
     const auto& base_indexes = fc.base_indexes_for_version(from_version);
     if (object_index < base_indexes.base_object_index) {
-      throw logic_error("floor config has incorrect base object index");
+      throw std::logic_error("floor config has incorrect base object index");
     }
     const auto& entities = fc.super_map->version(from_version);
     size_t fc_end_object_index = base_indexes.base_object_index + entities.objects.size();
@@ -6314,7 +6554,7 @@ void MapState::import_object_states_from_sync(
       if (from_version == Version::DC_NTE) {
         fc_end_object_index = entry_count;
       } else {
-        throw runtime_error(std::format(
+        throw std::runtime_error(std::format(
             "the map has more objects (at least 0x{:X}) than the client has (0x{:X})",
             fc_end_object_index, entry_count));
       }
@@ -6324,17 +6564,17 @@ void MapState::import_object_states_from_sync(
       const auto& obj = entities.objects.at(object_index - base_indexes.base_object_index);
       auto& obj_st = this->object_states.at(fc.base_super_ids.base_object_index + obj->super_id);
       if (obj_st->super_obj != obj) {
-        throw logic_error("super object link is incorrect");
+        throw std::logic_error("super object link is incorrect");
       }
       if (obj_st->game_flags != entry.flags) {
-        this->log.warning_f("({:04X} => K-{:03X}) Game flags from client ({:04X}) do not match game flags from map ({:04X})",
+        this->log.info_f("({:04X} => K-{:03X}) Game flags from client ({:04X}) do not match game flags from map ({:04X})",
             object_index, obj_st->k_id, entry.flags, obj_st->game_flags);
         obj_st->game_flags = entry.flags;
       }
     }
   }
   if (object_index < entry_count) {
-    throw runtime_error(std::format("the client has more objects (0x{:X}) than the map has (0x{:X})",
+    throw std::runtime_error(std::format("the client has more objects (0x{:X}) than the map has (0x{:X})",
         entry_count, object_index));
   }
 }
@@ -6348,26 +6588,26 @@ void MapState::import_enemy_states_from_sync(Version from_version, const SyncEne
     }
     const auto& base_indexes = fc.base_indexes_for_version(from_version);
     if (enemy_index < base_indexes.base_enemy_index) {
-      throw logic_error("floor config has incorrect base enemy index");
+      throw std::logic_error("floor config has incorrect base enemy index");
     }
     const auto& entities = fc.super_map->version(from_version);
     size_t fc_end_enemy_index = base_indexes.base_enemy_index + entities.enemies.size();
     if (fc_end_enemy_index > entry_count) {
-      throw runtime_error(std::format("the map has more enemies than the client has (0x{:X})", entry_count));
+      throw std::runtime_error(std::format("the map has more enemies than the client has (0x{:X})", entry_count));
     }
-    for (; enemy_index < min<size_t>(fc_end_enemy_index, entry_count); enemy_index++) {
+    for (; enemy_index < std::min<size_t>(fc_end_enemy_index, entry_count); enemy_index++) {
       const auto& entry = entries[enemy_index];
       const auto& ene = entities.enemies.at(enemy_index - base_indexes.base_enemy_index);
       auto& ene_st = this->enemy_states.at(fc.base_super_ids.base_enemy_index + ene->super_id);
       // Only set the state if it's not an alias
       if (ene_st->super_ene == ene) {
         if (ene_st->game_flags != entry.flags) {
-          this->log.warning_f("({:04X} => E-{:03X}) Flags from client ({:08X}) do not match game flags from map ({:08X})",
+          this->log.info_f("({:04X} => E-{:03X}) Game flags from client ({:08X}) do not match game flags from map ({:08X})",
               enemy_index, ene_st->e_id, entry.flags, ene_st->game_flags);
           ene_st->game_flags = entry.flags;
         }
         if (ene_st->total_damage != entry.total_damage) {
-          this->log.warning_f("({:04X} => E-{:03X}) Total damage from client ({}) does not match total damage from map ({})",
+          this->log.info_f("({:04X} => E-{:03X}) Total damage from client ({}) does not match total damage from map ({})",
               enemy_index, ene_st->e_id, entry.total_damage, ene_st->total_damage);
           ene_st->total_damage = entry.total_damage;
         }
@@ -6375,7 +6615,7 @@ void MapState::import_enemy_states_from_sync(Version from_version, const SyncEne
     }
   }
   if (enemy_index < entry_count) {
-    throw runtime_error(std::format("the client has more enemies (0x{:X}) than the map has (0x{:X})",
+    throw std::runtime_error(std::format("the client has more enemies (0x{:X}) than the map has (0x{:X})",
         entry_count, enemy_index));
   }
 }
@@ -6397,7 +6637,7 @@ void MapState::import_flag_states_from_sync(
       }
       const auto& base_indexes = fc.base_indexes_for_version(from_version);
       if (object_index < base_indexes.base_object_index) {
-        throw logic_error("floor config has incorrect base object index");
+        throw std::logic_error("floor config has incorrect base object index");
       }
       const auto& entities = fc.super_map->version(from_version);
       size_t fc_end_object_index = base_indexes.base_object_index + entities.objects.size();
@@ -6406,27 +6646,27 @@ void MapState::import_flag_states_from_sync(
         if (from_version == Version::DC_NTE) {
           fc_end_object_index = object_set_flags_count;
         } else {
-          throw runtime_error(std::format(
+          throw std::runtime_error(std::format(
               "the map has more objects (at least 0x{:X}) than the client has (0x{:X})",
               fc_end_object_index, object_set_flags_count));
         }
       }
-      for (; object_index < min<size_t>(fc_end_object_index, object_set_flags_count); object_index++) {
+      for (; object_index < std::min<size_t>(fc_end_object_index, object_set_flags_count); object_index++) {
         uint16_t set_flags = object_set_flags[object_index];
         const auto& obj = entities.objects.at(object_index - base_indexes.base_object_index);
         auto& obj_st = this->object_states.at(fc.base_super_ids.base_object_index + obj->super_id);
         if (obj_st->super_obj != obj) {
-          throw logic_error("super object link is incorrect");
+          throw std::logic_error("super object link is incorrect");
         }
         if (obj_st->set_flags != set_flags) {
-          this->log.warning_f("({:04X} => K-{:03X}) Set flags from client ({:04X}) do not match set flags from map ({:04X})",
+          this->log.info_f("({:04X} => K-{:03X}) Set flags from client ({:04X}) do not match set flags from map ({:04X})",
               object_index, obj_st->k_id, set_flags, obj_st->set_flags);
           obj_st->set_flags = set_flags;
         }
       }
     }
     if (object_index < object_set_flags_count) {
-      throw runtime_error(std::format("the client has more objects (0x{:X}) than the map has (0x{:X})",
+      throw std::runtime_error(std::format("the client has more objects (0x{:X}) than the map has (0x{:X})",
           object_set_flags_count, object_index));
     }
   }
@@ -6440,29 +6680,29 @@ void MapState::import_flag_states_from_sync(
       }
       const auto& base_indexes = fc.base_indexes_for_version(from_version);
       if (enemy_set_index < base_indexes.base_enemy_set_index) {
-        throw logic_error("floor config has incorrect base enemy index");
+        throw std::logic_error("floor config has incorrect base enemy index");
       }
       const auto& entities = fc.super_map->version(from_version);
       size_t fc_end_enemy_set_index = base_indexes.base_enemy_set_index + entities.enemy_sets.size();
       if (fc_end_enemy_set_index > enemy_set_flags_count) {
-        throw runtime_error("the map has more enemy sets than the client has");
+        throw std::runtime_error("the map has more enemy sets than the client has");
       }
-      for (; enemy_set_index < min<size_t>(fc_end_enemy_set_index, enemy_set_flags_count); enemy_set_index++) {
+      for (; enemy_set_index < std::min<size_t>(fc_end_enemy_set_index, enemy_set_flags_count); enemy_set_index++) {
         uint16_t set_flags = enemy_set_flags[enemy_set_index];
         const auto& ene = entities.enemy_sets.at(enemy_set_index - base_indexes.base_enemy_set_index);
         auto& ene_st = this->enemy_set_states.at(fc.base_super_ids.base_enemy_set_index + ene->super_set_id);
         if (ene_st->super_ene != ene) {
-          throw logic_error("super enemy link is incorrect");
+          throw std::logic_error("super enemy link is incorrect");
         }
         if (ene_st->set_flags != set_flags) {
-          this->log.warning_f("({:04X} => E-{:03X}) Set flags from client ({:04X}) do not match set flags from map ({:04X})",
+          this->log.info_f("({:04X} => E-{:03X}) Set flags from client ({:04X}) do not match set flags from map ({:04X})",
               enemy_set_index, ene_st->e_id, set_flags, ene_st->set_flags);
           ene_st->set_flags = set_flags;
         }
       }
     }
     if (enemy_set_index < enemy_set_flags_count) {
-      throw runtime_error("the client has more enemy sets than the map has");
+      throw std::runtime_error("the client has more enemy sets than the map has");
     }
   }
 
@@ -6475,26 +6715,26 @@ void MapState::import_flag_states_from_sync(
       }
       const auto& base_indexes = fc.base_indexes_for_version(from_version);
       if (event_index < base_indexes.base_event_index) {
-        throw logic_error("floor config has incorrect base event index");
+        throw std::logic_error("floor config has incorrect base event index");
       }
       const auto& entities = fc.super_map->version(from_version);
       size_t fc_end_event_index = base_indexes.base_event_index + entities.events.size();
       if (fc_end_event_index > event_flags_count) {
-        throw runtime_error("the map has more events than the client has");
+        throw std::runtime_error("the map has more events than the client has");
       }
-      for (; event_index < min<size_t>(fc_end_event_index, event_flags_count); event_index++) {
+      for (; event_index < std::min<size_t>(fc_end_event_index, event_flags_count); event_index++) {
         uint16_t flags = event_flags[event_index];
         const auto& ev = entities.events.at(event_index - base_indexes.base_event_index);
         auto& ev_st = this->event_states.at(fc.base_super_ids.base_event_index + ev->super_id);
         if (ev_st->flags != flags) {
-          this->log.warning_f("({:04X} => W-{:03X}) Set flags from client ({:04X}) do not match flags from map ({:04X})",
+          this->log.info_f("({:04X} => W-{:03X}) Set flags from client ({:04X}) do not match flags from map ({:04X})",
               event_index, ev_st->w_id, flags, ev_st->flags);
           ev_st->flags = flags;
         }
       }
     }
     if (event_index < event_flags_count) {
-      throw runtime_error("the client has more events than the map has");
+      throw std::runtime_error("the client has more events than the map has");
     }
   }
 }
@@ -6505,7 +6745,7 @@ void MapState::verify() const {
     size_t total_enemy_count = 0;
     size_t total_enemy_set_count = 0;
     size_t total_event_count = 0;
-    unordered_set<shared_ptr<const SuperMap>> verified_super_maps;
+    std::unordered_set<std::shared_ptr<const SuperMap>> verified_super_maps;
     for (const auto& fc : this->floor_config_entries) {
       if (fc.super_map && verified_super_maps.emplace(fc.super_map).second) {
         fc.super_map->verify();
@@ -6516,22 +6756,22 @@ void MapState::verify() const {
       }
     }
     if (this->object_states.size() != total_object_count) {
-      throw logic_error(std::format(
+      throw std::logic_error(std::format(
           "map state object count (0x{:X}) does not match supermap object count (0x{:X})",
           this->object_states.size(), total_object_count));
     }
     if (this->enemy_states.size() != total_enemy_count) {
-      throw logic_error(std::format(
+      throw std::logic_error(std::format(
           "map state enemy count (0x{:X}) does not match supermap enemy count (0x{:X})",
           this->enemy_states.size(), total_enemy_count));
     }
     if (this->enemy_set_states.size() != total_enemy_set_count) {
-      throw logic_error(std::format(
+      throw std::logic_error(std::format(
           "map state enemy set count (0x{:X}) does not match supermap enemy set count (0x{:X})",
           this->enemy_set_states.size(), total_enemy_set_count));
     }
     if (this->event_states.size() != total_event_count) {
-      throw logic_error(std::format(
+      throw std::logic_error(std::format(
           "map state event count (0x{:X}) does not match supermap event count (0x{:X})",
           this->event_states.size(), total_event_count));
     }
@@ -6539,41 +6779,41 @@ void MapState::verify() const {
     for (size_t k_id = 0; k_id < this->object_states.size(); k_id++) {
       const auto& obj_st = this->object_states[k_id];
       if (obj_st->k_id != k_id) {
-        throw logic_error("mismatched object state k_id");
+        throw std::logic_error("mismatched object state k_id");
       }
       const auto& fc = this->floor_config(obj_st->super_obj->floor);
       if (fc.base_super_ids.base_object_index + obj_st->super_obj->super_id != k_id) {
-        throw logic_error("mismatched object state super_id");
+        throw std::logic_error("mismatched object state super_id");
       }
     }
     for (size_t e_id = 0; e_id < this->enemy_states.size(); e_id++) {
       const auto& ene_st = this->enemy_states[e_id];
       if (ene_st->e_id != e_id) {
-        throw logic_error("mismatched enemy state e_id");
+        throw std::logic_error("mismatched enemy state e_id");
       }
       const auto& fc = this->floor_config(ene_st->super_ene->floor);
       if (fc.base_super_ids.base_enemy_index + ene_st->super_ene->super_id != e_id) {
-        throw logic_error("mismatched enemy state super_id");
+        throw std::logic_error("mismatched enemy state super_id");
       }
     }
     for (size_t set_id = 0; set_id < this->enemy_set_states.size(); set_id++) {
       const auto& ene_st = this->enemy_set_states[set_id];
       if (ene_st->set_id != set_id) {
-        throw logic_error("mismatched enemy set state set_id");
+        throw std::logic_error("mismatched enemy set state set_id");
       }
       const auto& fc = this->floor_config(ene_st->super_ene->floor);
       if (fc.base_super_ids.base_enemy_set_index + ene_st->super_ene->super_set_id != set_id) {
-        throw logic_error("mismatched enemy set state super_set_id");
+        throw std::logic_error("mismatched enemy set state super_set_id");
       }
     }
     for (size_t w_id = 0; w_id < this->event_states.size(); w_id++) {
       const auto& ev_st = this->event_states[w_id];
       if (ev_st->w_id != w_id) {
-        throw logic_error("mismatched event state w_id");
+        throw std::logic_error("mismatched event state w_id");
       }
       const auto& fc = this->floor_config(ev_st->super_ev->floor);
       if (fc.base_super_ids.base_event_index + ev_st->super_ev->super_id != w_id) {
-        throw logic_error("mismatched event state super_id");
+        throw std::logic_error("mismatched event state super_id");
       }
     }
 
@@ -6583,16 +6823,16 @@ void MapState::verify() const {
         const auto& fc = this->floor_config_entries[floor];
         const auto& fc_base_indexes = fc.base_indexes_for_version(v);
         if (base_indexes.base_object_index != fc_base_indexes.base_object_index) {
-          throw logic_error("base object index does not match expected value");
+          throw std::logic_error("base object index does not match expected value");
         }
         if (base_indexes.base_enemy_index != fc_base_indexes.base_enemy_index) {
-          throw logic_error("base enemy index does not match expected value");
+          throw std::logic_error("base enemy index does not match expected value");
         }
         if (base_indexes.base_enemy_set_index != fc_base_indexes.base_enemy_set_index) {
-          throw logic_error("base enemy set index does not match expected value");
+          throw std::logic_error("base enemy set index does not match expected value");
         }
         if (base_indexes.base_event_index != fc_base_indexes.base_event_index) {
-          throw logic_error("base event set index does not match expected value");
+          throw std::logic_error("base event set index does not match expected value");
         }
         if (fc.super_map) {
           const auto& entities = fc.super_map->version(v);
@@ -6604,7 +6844,7 @@ void MapState::verify() const {
       }
     }
 
-    unordered_set<size_t> remaining_bb_rare_indexes;
+    std::unordered_set<size_t> remaining_bb_rare_indexes;
     for (size_t index : this->bb_rare_enemy_indexes) {
       remaining_bb_rare_indexes.emplace(index);
     }
@@ -6619,17 +6859,17 @@ void MapState::verify() const {
       size_t base_enemy_index = this->floor_config(ene->super_ene->floor).base_indexes_for_version(Version::BB_V4).base_enemy_index;
       size_t enemy_index = base_enemy_index + ene->super_ene->version(Version::BB_V4).relative_enemy_index;
       if (!remaining_bb_rare_indexes.erase(enemy_index)) {
-        throw logic_error(std::format("BB random rare enemy index {:04X} not present in indexes set", enemy_index));
+        throw std::logic_error(std::format("BB random rare enemy index {:04X} not present in indexes set", enemy_index));
       }
     }
     if (!remaining_bb_rare_indexes.empty()) {
-      vector<string> indexes;
+      std::vector<std::string> indexes;
       for (uint16_t index : remaining_bb_rare_indexes) {
         indexes.emplace_back(std::format("{:04X}", index));
       }
-      throw logic_error("not all BB random rare enemies were accounted for; remaining: " + phosg::join(indexes, ", "));
+      throw std::logic_error("not all BB random rare enemies were accounted for; remaining: " + phosg::join(indexes, ", "));
     }
-  } catch (const exception&) {
+  } catch (const std::exception&) {
     this->print(stderr);
     throw;
   }
@@ -6672,7 +6912,7 @@ void MapState::print(FILE* stream) const {
         phosg::fwrite_fmt(stream, " {:04X}", index);
       }
     }
-    string obj_str = obj_st->super_obj->str();
+    std::string obj_str = obj_st->super_obj->str();
     phosg::fwrite_fmt(stream, " {} game_flags={:04X} set_flags={:04X} item_drop_checked={}\n",
         obj_str, obj_st->game_flags, obj_st->set_flags, obj_st->item_drop_checked ? "true" : "false");
   }
@@ -6692,7 +6932,7 @@ void MapState::print(FILE* stream) const {
         phosg::fwrite_fmt(stream, " {:04X}-{:04X}", index, set_index);
       }
     }
-    string ene_str = ene_st->super_ene->str();
+    std::string ene_str = ene_st->super_ene->str();
     phosg::fwrite_fmt(stream, " {} total_damage={:04X} rare_flags={:04X} game_flags={:08X} set_flags={:04X} server_flags={:04X}\n",
         ene_str, ene_st->total_damage, ene_st->rare_flags, ene_st->game_flags, ene_st->set_flags, ene_st->server_flags);
   }
@@ -6700,7 +6940,7 @@ void MapState::print(FILE* stream) const {
   if (this->bb_rare_enemy_indexes.empty()) {
     phosg::fwrite_fmt(stream, "BB rare enemy indexes: (none)\n");
   } else {
-    string s;
+    std::string s;
     for (auto index : this->bb_rare_enemy_indexes) {
       s += std::format(" {:04X}", index);
     }
@@ -6721,8 +6961,7 @@ void MapState::print(FILE* stream) const {
         phosg::fwrite_fmt(stream, " {:04X}", index);
       }
     }
-    string ev_str = ev_st->super_ev->str();
-    phosg::fwrite_fmt(stream, " {} set_flags={:04X}\n", ev_str, ev_st->flags);
+    phosg::fwrite_fmt(stream, " {} set_flags={:04X}\n", ev_st->super_ev->str(), ev_st->flags);
   }
 }
 

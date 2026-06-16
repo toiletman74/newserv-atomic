@@ -3,40 +3,86 @@
 #include <algorithm>
 #include <array>
 
+#include "EnemyType.hh"
 #include "Loggers.hh"
 
-using namespace std;
+// Note: There are clearly better ways of doing this, but this implementation closely follows what the original code in
+// the client does.
+template <typename ItemT, size_t MaxCount>
+struct ProbabilityTable {
+  ItemT items[MaxCount];
+  size_t count;
 
-// The favored weapon type table is hardcoded in the game client. The table is:
-//   Viridia     shots
-//   Greennill   rifles
-//   Skyly       swords
-//   Bluefull    partisans
-//   Purplenum   mechguns
-//   Pinkal      canes
-//   Redria      (none)
-//   Oran        daggers
-//   Yellowboze  (none)
-//   Whitill     slicers
-static const array<uint8_t, 10> favored_weapon_by_section_id = {
-    0x09, 0x07, 0x02, 0x04, 0x08, 0x0A, 0xFF, 0x03, 0xFF, 0x05};
+  ProbabilityTable() : count(0) {}
+
+  ProbabilityTable(const std::vector<ShopRandomSetBase::IntPairT<ItemT>>& table) : ProbabilityTable() {
+    for (const auto& entry : table) {
+      for (size_t y = 0; y < entry.weight; y++) {
+        this->push(entry.value);
+      }
+    }
+  }
+
+  template <size_t Count>
+  ProbabilityTable(const std::array<ShopRandomSetBase::IntPairT<ItemT>, Count>& table) : ProbabilityTable() {
+    for (const auto& entry : table) {
+      for (size_t y = 0; y < entry.weight; y++) {
+        this->push(entry.value);
+      }
+    }
+  }
+
+  void push(ItemT item) {
+    if (this->count == MaxCount) {
+      throw std::runtime_error("push to full probability table");
+    }
+    this->items[this->count++] = item;
+  }
+
+  ItemT pop() {
+    if (this->count == 0) {
+      throw std::runtime_error("pop from empty probability table");
+    }
+    return this->items[--this->count];
+  }
+
+  void shuffle(std::shared_ptr<RandomGenerator> rand_crypt) {
+    for (size_t z = 1; z < this->count; z++) {
+      size_t other_z = rand_crypt->next() % (z + 1);
+      ItemT t = this->items[z];
+      this->items[z] = this->items[other_z];
+      this->items[other_z] = t;
+    }
+  }
+
+  ItemT sample(std::shared_ptr<RandomGenerator> rand_crypt) const {
+    if (this->count == 0) {
+      throw std::runtime_error("sample from empty probability table");
+    } else if (this->count == 1) {
+      return this->items[0];
+    } else {
+      return this->items[rand_crypt->next() % this->count];
+    }
+  }
+};
 
 ItemCreator::ItemCreator(
-    shared_ptr<const CommonItemSet> common_item_set,
-    shared_ptr<const RareItemSet> rare_item_set,
-    shared_ptr<const ArmorRandomSet> armor_random_set,
-    shared_ptr<const ToolRandomSet> tool_random_set,
-    shared_ptr<const WeaponRandomSet> weapon_random_set,
-    shared_ptr<const TekkerAdjustmentSet> tekker_adjustment_set,
-    shared_ptr<const ItemParameterTable> item_parameter_table,
+    std::shared_ptr<const CommonItemSet> common_item_set,
+    std::shared_ptr<const RareItemSet> rare_item_set,
+    std::shared_ptr<const ArmorShopRandomSet> armor_random_set,
+    std::shared_ptr<const ToolShopRandomSet> tool_random_set,
+    std::shared_ptr<const WeaponShopRandomSet> weapon_random_set,
+    std::shared_ptr<const TekkerAdjustmentSet> tekker_adjustment_set,
+    std::shared_ptr<const ItemParameterTable> item_parameter_table,
     std::shared_ptr<const ItemData::StackLimits> stack_limits,
     GameMode mode,
     Difficulty difficulty,
     uint8_t section_id,
     std::shared_ptr<RandomGenerator> rand_crypt,
-    shared_ptr<const BattleRules> restrictions)
+    std::shared_ptr<const BattleRules> restrictions)
     : log(std::format("[ItemCreator:{}/{}/{}/{}] ", phosg::name_for_enum(stack_limits->version), abbreviation_for_mode(mode), abbreviation_for_difficulty(difficulty), section_id), lobby_log.min_level),
       logic_version(stack_limits->version),
+      is_legacy_replay(false),
       stack_limits(stack_limits),
       mode(mode),
       difficulty(difficulty),
@@ -65,13 +111,11 @@ void ItemCreator::set_section_id(uint8_t new_section_id) {
 }
 
 bool ItemCreator::are_rare_drops_allowed() const {
-  // Note: The client has an additional check here, which appears to be a subtle
-  // anti-cheating measure. There is a flag on the client, initially zero, which
-  // is set to 1 when certain unexpected item-related things happen (for
-  // example, a player possessing a mag with a level above 200, or a stack of
-  // consumables with an amount above the stack size limit). When the flag is
-  // set, this function returns false, which prevents all rare item drops.
-  // newserv intentionally does not implement this flag.
+  // Note: The client has an additional check here, which appears to be a subtle anti-cheating measure. There is a flag
+  // on the client, initially zero, which is set to 1 when certain unexpected item-related things happen (for example,
+  // a player possessing a mag with a level above 200, or a stack of consumables with an amount above the stack size
+  // limit). When the flag is set, this function returns false, which prevents all rare item drops. newserv
+  // intentionally does not implement this flag.
   return (this->mode != GameMode::CHALLENGE);
 }
 
@@ -137,13 +181,13 @@ uint8_t ItemCreator::table_index_for_area(uint8_t area) const {
   return data[area];
 }
 
-ItemCreator::DropResult ItemCreator::on_box_item_drop(uint8_t area) {
+ItemCreator::DropResult ItemCreator::on_box_item_drop(uint8_t area, bool force_rare) {
   try {
     uint8_t table_index = this->table_index_for_area(area);
     this->log.info_f("Box drop checks for area {:02X} (table index {:02X})", area, table_index);
 
     DropResult res;
-    res.item = this->check_rare_specs_and_create_rare_box_item(area);
+    res.item = this->check_rare_specs_and_create_rare_box_item(area, force_rare);
     if (!res.item.empty()) {
       res.is_from_rare_table = true;
     } else {
@@ -175,7 +219,7 @@ ItemCreator::DropResult ItemCreator::on_box_item_drop(uint8_t area) {
         case 6: // Nothing
           break;
         default:
-          throw logic_error("this should be impossible");
+          throw std::logic_error("this should be impossible");
       }
       if (item_class < 6) {
         this->generate_common_item_variances(res.item, area);
@@ -183,43 +227,46 @@ ItemCreator::DropResult ItemCreator::on_box_item_drop(uint8_t area) {
     }
     return res;
 
-  } catch (const exception& e) {
+  } catch (const std::exception& e) {
     this->log.error_f("Exception in item creation: {}", e.what());
     return DropResult();
   }
 }
 
-ItemCreator::DropResult ItemCreator::on_monster_item_drop(uint32_t enemy_type, uint8_t area) {
+ItemCreator::DropResult ItemCreator::on_monster_item_drop(EnemyType enemy_type, uint8_t area, bool force_rare) {
   try {
-    // Note: The original GC implementation uses (enemy_type > 0x58) here; we
-    // extend it to the full array size for BB
-    if (enemy_type >= 0x64) {
-      this->log.warning_f("Invalid enemy type: {:X}", enemy_type);
-      return DropResult();
-    }
-    this->log.info_f("Enemy type: {:X}", enemy_type);
+    // Note: The original implementation has a bounds check for enemy_type here, because it uses rt_index instead
+    // if (enemy_type >= NUM_RT_INDEXES_V4) {
+    //   this->log.warning_f("Invalid enemy type: {:X}", enemy_type);
+    //   return DropResult();
+    // }
+    this->log.info_f("Enemy type: {}", phosg::name_for_enum(enemy_type));
 
     auto pt = this->pt(area);
-    uint8_t type_drop_prob = pt->enemy_type_drop_probs.at(enemy_type);
-    uint8_t drop_sample = this->rand_int(100);
-    if (drop_sample >= type_drop_prob) {
-      this->log.info_f("Drop not chosen ({} >= {})", drop_sample, type_drop_prob);
+    uint8_t type_drop_prob = 0;
+    try {
+      type_drop_prob = pt->enemy_type_drop_probs.at(enemy_type);
+    } catch (const std::out_of_range&) {
+      this->log.info_f("No drop probability is set for this enemy type");
       return DropResult();
-    } else {
-      this->log.info_f("Drop chosen ({} < {})", drop_sample, type_drop_prob);
+    }
+    if (!force_rare) {
+      uint8_t drop_sample = this->rand_int(100);
+      if (drop_sample >= type_drop_prob) {
+        this->log.info_f("Drop not chosen ({} >= {})", drop_sample, type_drop_prob);
+        return DropResult();
+      } else {
+        this->log.info_f("Drop chosen ({} < {})", drop_sample, type_drop_prob);
+      }
     }
 
     DropResult res;
-    res.item = this->check_rare_spec_and_create_rare_enemy_item(enemy_type, area);
+    res.item = this->check_rare_spec_and_create_rare_enemy_item(enemy_type, area, force_rare);
     if (!res.item.empty()) {
       res.is_from_rare_table = true;
     } else {
-      uint32_t item_class_determinant =
-          this->should_allow_meseta_drops()
-          ? this->rand_int(3)
-          : (this->rand_int(2) + 1);
-
-      uint32_t item_class;
+      uint8_t item_class_determinant = this->should_allow_meseta_drops() ? this->rand_int(3) : (this->rand_int(2) + 1);
+      uint8_t item_class;
       switch (item_class_determinant) {
         case 0:
           item_class = 5;
@@ -228,13 +275,19 @@ ItemCreator::DropResult ItemCreator::on_monster_item_drop(uint32_t enemy_type, u
           item_class = 4;
           break;
         case 2:
-          item_class = pt->enemy_item_classes.at(enemy_type);
+          try {
+            item_class = pt->enemy_type_item_classes.at(enemy_type);
+          } catch (const std::out_of_range&) {
+            this->log.info_f("Item class is not set for this enemy type");
+            item_class = 0xFF;
+          }
           break;
         default:
-          throw logic_error("invalid item class determinant");
+          throw std::logic_error("invalid item class determinant");
       }
 
-      this->log.info_f("Rare drop not chosen; item class determinant is {}; item class is {}", item_class_determinant, item_class);
+      this->log.info_f(
+          "Rare drop not chosen; item class determinant is {}; item class is {}", item_class_determinant, item_class);
 
       switch (item_class) {
         case 0: // Weapon
@@ -254,7 +307,12 @@ ItemCreator::DropResult ItemCreator::on_monster_item_drop(uint32_t enemy_type, u
           break;
         case 5: // Meseta
           res.item.data1[0] = 0x04;
-          res.item.data2d = this->choose_meseta_amount(pt->enemy_meseta_ranges, enemy_type) & 0xFFFF;
+          try {
+            res.item.data2d = this->choose_meseta_amount(pt->enemy_type_meseta_ranges.at(enemy_type)) & 0xFFFF;
+          } catch (const std::out_of_range&) {
+            this->log.info_f("Meseta range is not set for this enemy type");
+            return DropResult();
+          }
           break;
         default:
           return res;
@@ -267,36 +325,54 @@ ItemCreator::DropResult ItemCreator::on_monster_item_drop(uint32_t enemy_type, u
 
     return res;
 
-  } catch (const exception& e) {
+  } catch (const std::exception& e) {
     this->log.error_f("Exception in item creation: {}", e.what());
     return DropResult();
   }
 }
 
-ItemData ItemCreator::check_rare_specs_and_create_rare_box_item(uint8_t area) {
-  ItemData item;
+ItemData ItemCreator::check_rare_specs_and_create_rare_item(
+    const std::vector<RareItemSet::ExpandedDrop>& specs, uint8_t area, bool force_rare) {
+  if (specs.empty()) {
+    return ItemData();
+  }
+
+  // This logic differs from the original client logic. This logic "stacks" all rare rates into a single probability
+  // space, whereas the original client logic chooses a new random number for each rare spec that it checks. The
+  // stacking logic makes the order of specs irrelevant, whereas the original client logic means that later specs are
+  // actually more rare than they should be. In the original client, this only matters for boxes, because enemies could
+  // not have multiple specs. Also, the original code uses 0xFFFFFFFF as the maximum here; we use 0x100000000 instead,
+  // which makes all rare items SLIGHTLY more rare.
+  int64_t det = force_rare ? 0 : this->rand_int(0x100000000);
+  if (this->is_legacy_replay) {
+    // For some old tests, we waste a few replay values because they used the old (non-stacked) logic. New tests should
+    // not use this codepath.
+    for (size_t z = 1; z < specs.size(); z++) {
+      this->rand_int(0x100000000);
+    }
+  }
+  this->log.info_f("{} specs to check with det={:08X}", specs.size(), det);
+  for (const auto& spec : specs) {
+    if (this->log.should_log(phosg::LogLevel::L_INFO)) {
+      this->log.info_f("Checking spec {:08X} => {} with det={:08X}", spec.probability, spec.data.hex(), det);
+    }
+    det -= spec.probability;
+    if (det < 0) {
+      return this->create_rare_item(spec.data, area);
+    }
+  }
+  return ItemData();
+}
+
+ItemData ItemCreator::check_rare_specs_and_create_rare_box_item(uint8_t area, bool force_rare) {
   if (!this->are_rare_drops_allowed()) {
-    return item;
+    return ItemData();
   }
 
   uint8_t table_index = this->table_index_for_area(area);
   Episode episode = episode_for_area(area);
-  auto rare_specs = this->rare_item_set->get_box_specs(this->mode, episode, this->difficulty, this->section_id, table_index);
-  for (const auto& spec : rare_specs) {
-    item = this->check_rate_and_create_rare_item(spec, area);
-    if (!item.empty()) {
-      if (this->log.should_log(phosg::LogLevel::L_INFO)) {
-        auto hex = spec.data.hex();
-        this->log.info_f("Box spec {:08X} produced item {}", spec.probability, hex);
-      }
-      break;
-    }
-    if (this->log.should_log(phosg::LogLevel::L_INFO)) {
-      auto hex = spec.data.hex();
-      this->log.info_f("Box spec {:08X} did not produce item {}", spec.probability, hex);
-    }
-  }
-  return item;
+  auto specs = this->rare_item_set->get_box_specs(this->mode, episode, this->difficulty, this->section_id, table_index);
+  return this->check_rare_specs_and_create_rare_item(specs, area, force_rare);
 }
 
 uint32_t ItemCreator::rand_int(uint64_t max) {
@@ -308,25 +384,18 @@ float ItemCreator::rand_float_0_1_from_crypt() {
   return (static_cast<double>(this->rand_crypt->next() >> 16) / 65536.0);
 }
 
-template <size_t NumRanges>
-uint32_t ItemCreator::choose_meseta_amount(
-    const parray<CommonItemSet::Table::Range<uint16_t>, NumRanges> ranges,
-    size_t table_index) {
-  uint16_t min = ranges[table_index].min;
-  uint16_t max = ranges[table_index].max;
-
-  // Note: The original code returns 0xFF here if either limit is equal to 0xFF
-  // (despite them being 16-bit integers!)
+uint32_t ItemCreator::choose_meseta_amount(const CommonItemSet::Table::Range<uint16_t>& range) {
+  // Note: The original code returns 0xFF here if either limit is equal to 0xFF (despite them being 16-bit integers!)
   uint16_t ret;
-  if (min == max) {
-    ret = min;
-  } else if (max < min) {
-    ret = this->rand_int((min - max) + 1) + max;
+  if (range.min == range.max) {
+    ret = range.min;
+  } else if (range.max < range.min) {
+    ret = this->rand_int((range.min - range.max) + 1) + range.max;
   } else {
-    ret = this->rand_int((max - min) + 1) + min;
+    ret = this->rand_int((range.max - range.min) + 1) + range.min;
   }
 
-  this->log.info_f("Chose {} Meseta from range [{}, {}]", ret, min, max);
+  this->log.info_f("Chose {} Meseta from range [{}, {}]", ret, range.min, range.max);
   return ret;
 }
 
@@ -334,45 +403,24 @@ bool ItemCreator::should_allow_meseta_drops() const {
   return (this->mode != GameMode::CHALLENGE);
 }
 
-ItemData ItemCreator::check_rare_spec_and_create_rare_enemy_item(uint32_t enemy_type, uint8_t area) {
-  ItemData item;
-  if (this->are_rare_drops_allowed() && (enemy_type > 0) && (enemy_type < 0x64)) {
-    // Note: In the original implementation, enemies can only have one possible
-    // rare drop. In our implementation, they can have multiple rare drops if
-    // JSONRareItemSet is used (the other RareItemSet implementations never
-    // return multiple drops for an enemy type).
-    Episode episode = episode_for_area(area);
-    auto rare_specs = this->rare_item_set->get_enemy_specs(this->mode, episode, this->difficulty, this->section_id, enemy_type);
-    for (const auto& spec : rare_specs) {
-      item = this->check_rate_and_create_rare_item(spec, area);
-      if (!item.empty()) {
-        if (this->log.should_log(phosg::LogLevel::L_INFO)) {
-          auto hex = spec.data.hex();
-          this->log.info_f("Enemy spec {:08X} produced item {}", spec.probability, hex);
-        }
-        break;
-      }
-      if (this->log.should_log(phosg::LogLevel::L_INFO)) {
-        auto hex = spec.data.hex();
-        this->log.info_f("Enemy spec {:08X} did not produce item {}", spec.probability, hex);
-      }
-    }
+ItemData ItemCreator::check_rare_spec_and_create_rare_enemy_item(EnemyType enemy_type, uint8_t area, bool force_rare) {
+  // Note: The original implementation has a bounds check for enemy_type here, since it uses rt_index instead.
+  // if ((enemy_type <= 0) || (enemy_type >= NUM_RT_INDEXES_V4)) return ItemData{};
+  if (!this->are_rare_drops_allowed()) {
+    return ItemData{};
   }
-  return item;
+
+  // Note: In the original implementation, enemies can only have one possible rare drop. In our implementation, they
+  // can have multiple rare drops if JSONRareItemSet is used (the other RareItemSet implementations never return
+  // multiple drops for an enemy type).
+  Episode episode = episode_for_area(area);
+  auto specs = this->rare_item_set->get_enemy_specs(
+      this->mode, episode, this->difficulty, this->section_id, enemy_type);
+  return this->check_rare_specs_and_create_rare_item(specs, area, force_rare);
 }
 
-ItemData ItemCreator::check_rate_and_create_rare_item(const RareItemSet::ExpandedDrop& drop, uint8_t area) {
-  if (drop.probability == 0) {
-    return ItemData();
-  }
-
-  // Note: The original code uses 0xFFFFFFFF as the maximum here. We use
-  // 0x100000000 instead, which makes all rare items SLIGHTLY more rare.
-  if (this->rand_int(0x100000000) >= drop.probability) {
-    return ItemData();
-  }
-
-  ItemData item = drop.data;
+ItemData ItemCreator::create_rare_item(const ItemData& drop_item, uint8_t area) {
+  ItemData item = drop_item;
   if (item.can_be_encoded_in_rel_rare_table()) {
     switch (item.data1[0]) {
       case 0:
@@ -396,7 +444,7 @@ ItemData ItemCreator::check_rate_and_create_rare_item(const RareItemSet::Expande
       case 4:
         break;
       default:
-        throw logic_error("invalid item class");
+        throw std::logic_error("invalid item class");
     }
     this->set_item_kill_count_if_unsealable(item);
   }
@@ -412,7 +460,7 @@ void ItemCreator::generate_rare_weapon_bonuses(ItemData& item, Episode episode, 
 
   auto pt = this->pt(episode);
   if (!pt->has_rare_bonus_value_prob_table) {
-    throw logic_error("generate_rare_weapon_bonuses called for common item table without rare bonus value probability table");
+    throw std::logic_error("generate_rare_weapon_bonuses called for common item table without rare bonus value probability table");
   }
 
   for (size_t z = 0; z < 6; z += 2) {
@@ -420,10 +468,9 @@ void ItemCreator::generate_rare_weapon_bonuses(ItemData& item, Episode episode, 
     int16_t bonus_value = this->get_rand_from_weighted_tables_2d_vertical(pt->bonus_value_prob_table, 5);
     item.data1[z + 6] = bonus_type;
     item.data1[z + 7] = bonus_value * 5 - 10;
-    // Note: The original code has a special case here, which divides
-    // item.data1[z + 7] by 5 and multiplies it by 5 again if bonus_type is 5
-    // (Hit). Why this is done is unclear, because item.data1[z + 7] must
-    // already be a multiple of 5.
+    // Note: The original code has a special case here, which divides item.data1[z + 7] by 5 and multiplies it by 5
+    // again if bonus_type is 5 (Hit). Why this is done is unclear, because item.data1[z + 7] must already be a
+    // multiple of 5.
   }
 
   this->deduplicate_weapon_bonuses(item);
@@ -446,10 +493,9 @@ void ItemCreator::generate_common_weapon_bonuses(ItemData& item, uint8_t area) {
       item.data1[(row * 2) + 7] = amount * 5 - 10;
       this->log.info_f("Bonus {} generated as {:02X} {:02X} from table index {:02X} and spec {:02X}", row, item.data1[(row * 2) + 6], item.data1[(row * 2) + 7], table_index, spec);
     }
-    // Note: The original code has a special case here, which divides
-    // item.data1[z + 7] by 5 and multiplies it by 5 again if bonus_type is 5
-    // (Hit). Why this is done is unclear, because item.data1[z + 7] must
-    // already be a multiple of 5.
+    // Note: The original code has a special case here, which divides item.data1[z + 7] by 5 and multiplies it by 5
+    // again if bonus_type is 5 (Hit). Why this is done is unclear, because item.data1[z + 7] must already be a
+    // multiple of 5.
   }
 
   this->deduplicate_weapon_bonuses(item);
@@ -484,14 +530,11 @@ void ItemCreator::set_item_unidentified_flag_if_not_challenge(ItemData& item) co
   if (item.data1[0] != 0x00) {
     return;
   }
-  // On V1, V3, and V4, all rare weapons and weapons with specials are untekked
-  // when created; on V2, only rares that are not in the standard item classes
-  // are untekked when created.
+  // On V1, V3, and V4, all rare weapons and weapons with specials are untekked when created; on V2, only rares that
+  // are not in the standard item classes are untekked when created.
   bool is_rare = this->item_parameter_table->is_item_rare(item);
   bool use_v2_logic = is_v2(this->logic_version) && (this->logic_version != Version::GC_NTE);
-  if (use_v2_logic
-          ? (is_rare ? (item.data1[1] > 0x0C) : (item.data1[4] != 0))
-          : (is_rare || (item.data1[4] != 0))) {
+  if (use_v2_logic ? (is_rare ? (item.data1[1] > 0x0C) : (item.data1[4] != 0)) : (is_rare || (item.data1[4] != 0))) {
     item.data1[4] |= 0x80;
   }
 }
@@ -503,8 +546,7 @@ void ItemCreator::set_tool_item_amount_to_1(ItemData& item) const {
 }
 
 void ItemCreator::clear_tool_item_if_invalid(ItemData& item) {
-  if ((item.data1[1] == 0x02) &&
-      ((item.data1[2] > 0x1D) || (item.data1[4] > 0x12))) {
+  if ((item.data1[1] == 0x02) && ((item.data1[2] > 0x1D) || (item.data1[4] > 0x12))) {
     item.clear();
   }
 }
@@ -517,9 +559,8 @@ void ItemCreator::clear_item_if_restricted(ItemData& item) const {
   }
 
   if (this->mode == GameMode::CHALLENGE) {
-    // Forbid HP/TP-restoring units and meseta in challenge mode
-    // Note: PSO GC doesn't check for 0x61 or 0x62 here since those items
-    // (HP/Resurrection and TP/Resurrection) only exist on BB.
+    // Forbid HP/TP-restoring units and meseta in challenge mode. PSO GC doesn't check for 0x61 or 0x62 here since
+    // those items (HP/Resurrection and TP/Resurrection) only exist on BB.
     if (item.data1[0] == 1) {
       if ((item.data1[1] == 3) && (((item.data1[2] >= 0x33) && (item.data1[2] <= 0x38)) || (item.data1[2] == 0x61) || (item.data1[2] == 0x62))) {
         this->log.info_f("Restricted: restore units not allowed in Challenge mode");
@@ -552,7 +593,7 @@ void ItemCreator::clear_item_if_restricted(ItemData& item) const {
             item.clear();
             break;
           default:
-            throw logic_error("invalid weapon and armor mode");
+            throw std::logic_error("invalid weapon and armor mode");
         }
         break;
       case 2:
@@ -583,7 +624,7 @@ void ItemCreator::clear_item_if_restricted(ItemData& item) const {
               }
               break;
             default:
-              throw logic_error("invalid tech disk mode");
+              throw std::logic_error("invalid tech disk mode");
           }
         } else if ((item.data1[1] == 9) && this->restrictions->forbid_scape_dolls) {
           this->log.info_f("Restricted: scape dolls not allowed");
@@ -597,7 +638,7 @@ void ItemCreator::clear_item_if_restricted(ItemData& item) const {
         }
         break;
       default:
-        throw logic_error("invalid item");
+        throw std::logic_error("invalid item");
     }
   }
 }
@@ -628,14 +669,16 @@ void ItemCreator::generate_common_item_variances(ItemData& item, uint8_t area) {
     case 3:
       this->generate_common_tool_variances(item, area);
       break;
-    case 4:
-      item.data2d = this->choose_meseta_amount(this->pt(area)->box_meseta_ranges, this->table_index_for_area(area)) & 0xFFFF;
+    case 4: {
+      const auto& range = this->pt(area)->box_meseta_ranges.at(this->table_index_for_area(area));
+      item.data2d = this->choose_meseta_amount(range) & 0xFFFF;
       break;
+    }
     default:
       // Note: The original code does the following here:
-      // item.clear();
-      // item.data1[0] = 0x05;
-      throw logic_error("invalid item class");
+      //   item.clear();
+      //   item.data1[0] = 0x05;
+      throw std::logic_error("invalid item class");
   }
 
   this->clear_item_if_restricted(item);
@@ -689,19 +732,17 @@ void ItemCreator::generate_common_tool_variances(ItemData& item, uint8_t area) {
   }
   this->log.info_f("Generating tool with class {:02X}", tool_class);
 
-  // Note: This block was originally a separate function called
-  // generate_common_tool_type
+  // Note: This block was originally a separate function called generate_common_tool_type
   {
-    // It appears that when Sega deleted Hit Material in v3, they never deleted
-    // it from the ItemPT entries, so sometimes ItemCreator tries to generate
-    // it. The original implementation just generates no item when that happens,
-    // so we do the same here.
+    // It appears that when Sega deleted Hit Material in v3, they never deleted it from the ItemPT entries, so
+    // sometimes ItemCreator tries to generate it. The original implementation just generates no item when that
+    // happens, so we do the same here.
     try {
       auto data = this->item_parameter_table->find_tool_by_id(tool_class);
       item.data1[0] = 0x03;
       item.data1[1] = data.first;
       item.data1[2] = data.second;
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       this->log.info_f("Tool class is missing; skipping item generation");
       return;
     }
@@ -730,8 +771,7 @@ void ItemCreator::generate_common_mag_variances(ItemData& item) {
     item.data1[1] = 0x00;
     item.assign_mag_stats(ItemMagStats());
 
-    // The original code (on PSO GC) assigns the mag color as 0x0E. We assign
-    // a random color instead.
+    // The original code (on PSO GC) assigns the mag color as 0x0E. We assign a random color instead.
     if (is_pre_v1(this->logic_version)) {
       item.data2[3] = 0x00;
     } else if (is_v1_or_v2(this->logic_version)) {
@@ -791,7 +831,7 @@ void ItemCreator::generate_common_weapon_variances(ItemData& item, uint8_t area)
 
 void ItemCreator::generate_common_weapon_grind(ItemData& item, uint8_t area, uint8_t offset_within_subtype_range) {
   if (item.data1[0] == 0) {
-    uint8_t offset = clamp<uint8_t>(offset_within_subtype_range, 0, 3);
+    uint8_t offset = std::clamp<uint8_t>(offset_within_subtype_range, 0, 3);
     item.data1[3] = this->get_rand_from_weighted_tables_2d_vertical(this->pt(area)->grind_prob_table, offset);
     this->log.info_f("Generated grind {:02X} from offset within subtype range {:02X}", item.data1[3], offset_within_subtype_range);
   }
@@ -831,7 +871,7 @@ uint8_t ItemCreator::choose_weapon_special(uint8_t det) {
   uint8_t det2 = this->rand_int(maxes[det]);
   this->log.info_f("Choosing special with det {:02X} and det2 {:02X}", det, det2);
   size_t index = 0;
-  for (size_t z = 1; z < this->item_parameter_table->num_specials; z++) {
+  for (size_t z = 1; z < this->item_parameter_table->num_specials(); z++) {
     if (det + 1 == this->item_parameter_table->get_special_stars(z)) {
       if (index == det2) {
         this->log.info_f("Chose special {:02X}", z);
@@ -846,9 +886,8 @@ uint8_t ItemCreator::choose_weapon_special(uint8_t det) {
 }
 
 void ItemCreator::generate_unit_stars_tables() {
-  // Note: This part of the function was originally in a different function,
-  // since it had another callsite. Unlike the original code, we generate these
-  // tables only once at construction time, so we've inlined the function here.
+  // Note: This part of the function was originally in a different function, since it had another callsite. Unlike the
+  // original code, we generate these tables only once at construction time, so we've inlined the function here.
 
   size_t star_base_index;
   uint8_t num_units;
@@ -857,7 +896,7 @@ void ItemCreator::generate_unit_stars_tables() {
     case Version::BB_PATCH:
     case Version::GC_EP3_NTE:
     case Version::GC_EP3:
-      throw logic_error("ItemCreator cannot be created for Episode 3 games");
+      throw std::logic_error("ItemCreator cannot be created for Episode 3 games");
     case Version::DC_NTE:
       star_base_index = 0x124;
       num_units = 0x43;
@@ -887,7 +926,7 @@ void ItemCreator::generate_unit_stars_tables() {
       num_units = 0x64;
       break;
     default:
-      throw logic_error("invalid game version");
+      throw std::logic_error("invalid game version");
   }
 
   for (auto& vec : this->unit_results_by_star_count) {
@@ -931,12 +970,9 @@ void ItemCreator::generate_common_unit_variances(uint8_t stars, ItemData& item) 
       result.unit, result.modifier, results.size(), stars);
 }
 
-// Returns a weighted random result, indicating the chosen position in the
-// weighted table.
-//
-// For example, an input table of 40 40 40 40 would be equally likely to return
-// 0, 1, 2, or 3. An input table of 40 40 80 would return 2 50% of the time, and
-// 0 or 1 each 25% of the time.
+// Returns a weighted random result, indicating the chosen position in the weighted table. For example, an input table
+// of 40 40 40 40 would be equally likely to return 0, 1, 2, or 3. An input table of 40 40 80 would return 2 50% of the
+// time, and 0 or 1 each 25% of the time.
 template <typename IntT>
 IntT ItemCreator::get_rand_from_weighted_tables(const IntT* tables, size_t offset, size_t num_values, size_t stride) {
   uint64_t rand_max = 0;
@@ -944,7 +980,7 @@ IntT ItemCreator::get_rand_from_weighted_tables(const IntT* tables, size_t offse
     rand_max += tables[x * stride + offset];
   }
   if (rand_max == 0) {
-    throw runtime_error("weighted table is empty");
+    throw std::runtime_error("weighted table is empty");
   }
 
   uint32_t x = this->rand_int(rand_max);
@@ -955,7 +991,7 @@ IntT ItemCreator::get_rand_from_weighted_tables(const IntT* tables, size_t offse
     }
     x -= table_value;
   }
-  throw logic_error("selector was not less than rand_max");
+  throw std::logic_error("selector was not less than rand_max");
 }
 
 template <typename IntT, size_t X>
@@ -968,8 +1004,8 @@ IntT ItemCreator::get_rand_from_weighted_tables_2d_vertical(const parray<parray<
   return ItemCreator::get_rand_from_weighted_tables<IntT>(tables[0].data(), offset, Y, X);
 }
 
-vector<ItemData> ItemCreator::generate_armor_shop_contents(Episode episode, size_t player_level) {
-  vector<ItemData> shop;
+std::vector<ItemData> ItemCreator::generate_armor_shop_contents(Episode episode, size_t player_level) {
+  std::vector<ItemData> shop;
   this->generate_armor_shop_armors(shop, episode, player_level);
   this->generate_armor_shop_shields(shop, player_level);
   this->generate_armor_shop_units(shop, player_level);
@@ -992,7 +1028,7 @@ size_t ItemCreator::get_table_index_for_armor_shop(
 }
 
 bool ItemCreator::shop_does_not_contain_duplicate_armor(
-    const vector<ItemData>& shop, const ItemData& item) {
+    const std::vector<ItemData>& shop, const ItemData& item) {
   for (const auto& shop_item : shop) {
     if ((shop_item.data1[0] == item.data1[0]) &&
         (shop_item.data1[1] == item.data1[1]) &&
@@ -1005,7 +1041,7 @@ bool ItemCreator::shop_does_not_contain_duplicate_armor(
 }
 
 bool ItemCreator::shop_does_not_contain_duplicate_tech_disk(
-    const vector<ItemData>& shop, const ItemData& item) {
+    const std::vector<ItemData>& shop, const ItemData& item) {
   for (const auto& shop_item : shop) {
     if ((shop_item.data1[0] == item.data1[0]) &&
         (shop_item.data1[1] == item.data1[1]) &&
@@ -1018,7 +1054,7 @@ bool ItemCreator::shop_does_not_contain_duplicate_tech_disk(
 }
 
 bool ItemCreator::shop_does_not_contain_duplicate_or_too_many_similar_weapons(
-    const vector<ItemData>& shop, const ItemData& item) {
+    const std::vector<ItemData>& shop, const ItemData& item) {
   size_t similar_items = 0;
   for (const auto& shop_item : shop) {
     // Disallow exact matches
@@ -1026,8 +1062,7 @@ bool ItemCreator::shop_does_not_contain_duplicate_or_too_many_similar_weapons(
       return false;
     }
 
-    if ((shop_item.data1[0] == item.data1[0]) &&
-        (shop_item.data1[1] == item.data1[1])) {
+    if ((shop_item.data1[0] == item.data1[0]) && (shop_item.data1[1] == item.data1[1])) {
       similar_items++;
       if (similar_items >= 2) {
         return false;
@@ -1038,7 +1073,7 @@ bool ItemCreator::shop_does_not_contain_duplicate_or_too_many_similar_weapons(
 }
 
 bool ItemCreator::shop_does_not_contain_duplicate_item_by_data1_0_1_2(
-    const vector<ItemData>& shop, const ItemData& item) {
+    const std::vector<ItemData>& shop, const ItemData& item) {
   for (const auto& shop_item : shop) {
     if ((shop_item.data1[0] == item.data1[0]) &&
         (shop_item.data1[1] == item.data1[1]) &&
@@ -1049,26 +1084,20 @@ bool ItemCreator::shop_does_not_contain_duplicate_item_by_data1_0_1_2(
   return true;
 }
 
-void ItemCreator::generate_armor_shop_armors(vector<ItemData>& shop, Episode episode, size_t player_level) {
+void ItemCreator::generate_armor_shop_armors(std::vector<ItemData>& shop, Episode episode, size_t player_level) {
   size_t num_items;
   if (player_level < 11) {
     num_items = 4;
   } else if (player_level < 26) {
     num_items = 6;
   } else {
-    // Note: The original code has another case here that can result in 8 items,
-    // but that overflows BB's shop item list command, so we omit it here.
+    // Note: The original code has another case here that can result in 8 items,  but that overflows BB's shop item
+    // list command, so we omit it here.
     num_items = 7;
   }
   size_t table_index = this->get_table_index_for_armor_shop(player_level);
 
-  ProbabilityTable<uint8_t, 100> pt;
-  auto src_table = this->armor_random_set->get_armor_table(table_index);
-  for (size_t z = 0; z < src_table.second; z++) {
-    for (size_t y = 0; y < src_table.first[z].weight; y++) {
-      pt.push(src_table.first[z].value);
-    }
-  }
+  ProbabilityTable<uint8_t, 100> pt{this->armor_random_set->armor_table.at(table_index)};
   pt.shuffle(this->rand_crypt);
 
   for (size_t items_generated = 0; items_generated < num_items;) {
@@ -1093,7 +1122,7 @@ void ItemCreator::generate_armor_shop_armors(vector<ItemData>& shop, Episode epi
   }
 }
 
-void ItemCreator::generate_armor_shop_shields(vector<ItemData>& shop, size_t player_level) {
+void ItemCreator::generate_armor_shop_shields(std::vector<ItemData>& shop, size_t player_level) {
   size_t num_items;
   if (player_level < 11) {
     num_items = 4;
@@ -1106,13 +1135,7 @@ void ItemCreator::generate_armor_shop_shields(vector<ItemData>& shop, size_t pla
   }
   size_t table_index = this->get_table_index_for_armor_shop(player_level);
 
-  ProbabilityTable<uint8_t, 100> pt;
-  auto src_table = this->armor_random_set->get_shield_table(table_index);
-  for (size_t z = 0; z < src_table.second; z++) {
-    for (size_t y = 0; y < src_table.first[z].weight; y++) {
-      pt.push(src_table.first[z].value);
-    }
-  }
+  ProbabilityTable<uint8_t, 100> pt{this->armor_random_set->shield_table.at(table_index)};
   pt.shuffle(this->rand_crypt);
 
   for (size_t items_generated = 0; items_generated < num_items;) {
@@ -1136,7 +1159,7 @@ void ItemCreator::generate_armor_shop_shields(vector<ItemData>& shop, size_t pla
   }
 }
 
-void ItemCreator::generate_armor_shop_units(vector<ItemData>& shop, size_t player_level) {
+void ItemCreator::generate_armor_shop_units(std::vector<ItemData>& shop, size_t player_level) {
   size_t num_items;
   if (player_level < 11) {
     return; // num_items = 0
@@ -1149,13 +1172,7 @@ void ItemCreator::generate_armor_shop_units(vector<ItemData>& shop, size_t playe
   }
   size_t table_index = this->get_table_index_for_armor_shop(player_level);
 
-  ProbabilityTable<uint8_t, 100> pt;
-  auto src_table = this->armor_random_set->get_unit_table(table_index);
-  for (size_t z = 0; z < src_table.second; z++) {
-    for (size_t y = 0; y < src_table.first[z].weight; y++) {
-      pt.push(src_table.first[z].value);
-    }
-  }
+  ProbabilityTable<uint8_t, 100> pt{this->armor_random_set->unit_table.at(table_index)};
   pt.shuffle(this->rand_crypt);
 
   for (size_t items_generated = 0; items_generated < num_items;) {
@@ -1170,8 +1187,8 @@ void ItemCreator::generate_armor_shop_units(vector<ItemData>& shop, size_t playe
   }
 }
 
-vector<ItemData> ItemCreator::generate_tool_shop_contents(size_t player_level) {
-  vector<ItemData> shop;
+std::vector<ItemData> ItemCreator::generate_tool_shop_contents(size_t player_level) {
+  std::vector<ItemData> shop;
   this->generate_common_tool_shop_recovery_items(shop, player_level);
   this->generate_rare_tool_shop_recovery_items(shop, player_level);
   this->generate_tool_shop_tech_disks(shop, player_level);
@@ -1193,27 +1210,7 @@ size_t ItemCreator::get_table_index_for_tool_shop(size_t player_level) {
   }
 }
 
-static const vector<pair<uint8_t, uint8_t>> tool_item_defs({
-    {0x00, 0x00},
-    {0x00, 0x01},
-    {0x00, 0x02},
-    {0x01, 0x00},
-    {0x01, 0x01},
-    {0x01, 0x02},
-    {0x06, 0x00},
-    {0x06, 0x01},
-    {0x03, 0x00},
-    {0x04, 0x00},
-    {0x05, 0x00},
-    {0x07, 0x00},
-    {0x08, 0x00},
-    {0x09, 0x00},
-    {0x0A, 0x00},
-    {0xFF, 0xFF},
-});
-
-void ItemCreator::generate_common_tool_shop_recovery_items(
-    vector<ItemData>& shop, size_t player_level) {
+void ItemCreator::generate_common_tool_shop_recovery_items(std::vector<ItemData>& shop, size_t player_level) {
   size_t table_index;
   if (player_level < 11) {
     table_index = 0;
@@ -1229,36 +1226,26 @@ void ItemCreator::generate_common_tool_shop_recovery_items(
     table_index = 5;
   }
 
-  auto table = this->tool_random_set->get_common_recovery_table(table_index);
-  for (size_t z = 0; z < table.second; z++) {
-    uint8_t type = table.first[z];
-    if (type == 0x0F) {
+  for (const auto& entry : this->tool_random_set->common_recovery_table.at(table_index)) {
+    if (entry == 0x0F) {
       continue;
     }
 
     auto& item = shop.emplace_back();
     item.data1[0] = 3;
-    item.data1[1] = tool_item_defs[type].first;
-    item.data1[2] = tool_item_defs[type].second;
+    item.data1[1] = ToolShopRandomSet::item_defs[entry].first;
+    item.data1[2] = ToolShopRandomSet::item_defs[entry].second;
   }
 }
 
-void ItemCreator::generate_rare_tool_shop_recovery_items(
-    vector<ItemData>& shop, size_t player_level) {
+void ItemCreator::generate_rare_tool_shop_recovery_items(std::vector<ItemData>& shop, size_t player_level) {
   if (player_level < 11) {
     return;
   }
   static constexpr size_t num_items = 2;
 
-  ProbabilityTable<uint8_t, 100> pt;
   size_t table_index = this->get_table_index_for_tool_shop(player_level);
-  auto table = this->tool_random_set->get_rare_recovery_table(table_index);
-  for (size_t z = 0; z < table.second; z++) {
-    const auto& e = table.first[z];
-    for (size_t y = 0; y < e.weight; y++) {
-      pt.push(e.value);
-    }
-  }
+  ProbabilityTable<uint8_t, 100> pt{this->tool_random_set->rare_recovery_table.at(table_index)};
   pt.shuffle(this->rand_crypt);
 
   size_t effective_num_items = num_items;
@@ -1272,8 +1259,8 @@ void ItemCreator::generate_rare_tool_shop_recovery_items(
     } else {
       ItemData item;
       item.data1[0] = 3;
-      item.data1[1] = tool_item_defs[type].first;
-      item.data1[2] = tool_item_defs[type].second;
+      item.data1[1] = ToolShopRandomSet::item_defs[type].first;
+      item.data1[2] = ToolShopRandomSet::item_defs[type].second;
       if (this->shop_does_not_contain_duplicate_item_by_data1_0_1_2(shop, item)) {
         shop.emplace_back(std::move(item));
         items_generated++;
@@ -1282,7 +1269,7 @@ void ItemCreator::generate_rare_tool_shop_recovery_items(
   }
 }
 
-void ItemCreator::generate_tool_shop_tech_disks(vector<ItemData>& shop, size_t player_level) {
+void ItemCreator::generate_tool_shop_tech_disks(std::vector<ItemData>& shop, size_t player_level) {
   size_t num_items;
   if (player_level < 11) {
     num_items = 4;
@@ -1293,20 +1280,8 @@ void ItemCreator::generate_tool_shop_tech_disks(vector<ItemData>& shop, size_t p
   }
 
   size_t table_index = this->get_table_index_for_tool_shop(player_level);
-  auto table = this->tool_random_set->get_tech_disk_table(table_index);
-
-  ProbabilityTable<uint8_t, 100> pt;
-  for (size_t z = 0; z < table.second; z++) {
-    const auto& e = table.first[z];
-    for (size_t y = 0; y < e.weight; y++) {
-      pt.push(e.value);
-    }
-  }
+  ProbabilityTable<uint8_t, 100> pt{this->tool_random_set->tech_disk_table.at(table_index)};
   pt.shuffle(this->rand_crypt);
-
-  static const array<uint8_t, 0x13> tech_num_map = {
-      0x00, 0x03, 0x06, 0x0F, 0x10, 0x0D, 0x0A, 0x0B, 0x0C, 0x01, 0x04, 0x07,
-      0x0E, 0x11, 0x02, 0x05, 0x08, 0x09, 0x12};
 
   size_t items_generated = 0;
   while (items_generated < num_items) {
@@ -1314,7 +1289,7 @@ void ItemCreator::generate_tool_shop_tech_disks(vector<ItemData>& shop, size_t p
     ItemData item;
     item.data1[0] = 3;
     item.data1[1] = 2;
-    item.data1[4] = tech_num_map.at(tech_num_index);
+    item.data1[4] = ToolShopRandomSet::tech_num_map.at(tech_num_index);
     this->choose_tech_disk_level_for_tool_shop(item, player_level, tech_num_index);
     if (this->shop_does_not_contain_duplicate_tech_disk(shop, item)) {
       shop.emplace_back(std::move(item));
@@ -1323,38 +1298,36 @@ void ItemCreator::generate_tool_shop_tech_disks(vector<ItemData>& shop, size_t p
   }
 }
 
-void ItemCreator::choose_tech_disk_level_for_tool_shop(
-    ItemData& item, size_t player_level, uint8_t tech_num_index) {
+void ItemCreator::choose_tech_disk_level_for_tool_shop(ItemData& item, size_t player_level, uint8_t tech_num_index) {
   size_t table_index = this->get_table_index_for_tool_shop(player_level);
-  auto table = this->tool_random_set->get_tech_disk_level_table(table_index);
-  if (tech_num_index >= table.second) {
-    throw runtime_error("technique number out of range");
+  auto table = this->tool_random_set->tech_disk_level_table.at(table_index);
+  if (tech_num_index >= table.size()) {
+    throw std::runtime_error("technique number out of range");
   }
-  const auto& e = table.first[tech_num_index];
+  const auto& e = table[tech_num_index];
 
   switch (e.mode) {
-    case ToolRandomSet::TechDiskLevelEntry::Mode::LEVEL_1:
+    case ToolShopRandomSet::TechDiskLevelEntry::Mode::LEVEL_1:
       item.data1[2] = 0;
       break;
-    case ToolRandomSet::TechDiskLevelEntry::Mode::PLAYER_LEVEL_DIVISOR:
-      item.data1[2] = clamp<ssize_t>(
-          (min<size_t>(player_level, 99) / e.player_level_divisor_or_min_level) - 1, 0, 14);
+    case ToolShopRandomSet::TechDiskLevelEntry::Mode::PLAYER_LEVEL_DIVISOR:
+      item.data1[2] = std::clamp<ssize_t>(
+          (std::min<size_t>(player_level, 99) / e.player_level_divisor_or_min_level) - 1, 0, 14);
       break;
-    case ToolRandomSet::TechDiskLevelEntry::Mode::RANDOM_IN_RANGE: {
-      // Note: This logic does not give a uniform distribution - if the minimum
-      // level is not zero (level 1), then the minimum level is more likely than
-      // all the other levels. This behavior matches the client's logic, though
-      // it's unclear if this nonuniformity was intentional.
-      int16_t min_level = max<int16_t>(e.player_level_divisor_or_min_level - 1, 0);
-      item.data1[2] = clamp<int16_t>(this->rand_int(e.max_level), min_level, 14);
+    case ToolShopRandomSet::TechDiskLevelEntry::Mode::RANDOM_IN_RANGE: {
+      // Note: This logic does not give a uniform distribution - if the minimum level is not zero (level 1), then the
+      // minimum level is more likely than all the other levels. This behavior matches the client's logic, though it's
+      // unclear if this nonuniformity was intentional.
+      int16_t min_level = std::max<int16_t>(e.player_level_divisor_or_min_level - 1, 0);
+      item.data1[2] = std::clamp<int16_t>(this->rand_int(e.max_level), min_level, 14);
       break;
     }
     default:
-      throw logic_error("invalid tech disk level mode");
+      throw std::logic_error("invalid tech disk level mode");
   }
 }
 
-vector<ItemData> ItemCreator::generate_weapon_shop_contents(size_t player_level) {
+std::vector<ItemData> ItemCreator::generate_weapon_shop_contents(size_t player_level) {
   size_t num_items;
   if (player_level < 11) {
     num_items = 10;
@@ -1395,137 +1368,25 @@ vector<ItemData> ItemCreator::generate_weapon_shop_contents(size_t player_level)
     }
   }
 
-  ProbabilityTable<uint8_t, 100> pt;
-  auto table = this->weapon_random_set->get_weapon_type_table(table_index);
-  for (size_t z = 0; z < table.second; z++) {
-    const auto& e = table.first[z];
-    for (size_t y = 0; y < e.weight; y++) {
-      pt.push(e.value);
-    }
-  }
+  ProbabilityTable<uint8_t, 100> pt{this->weapon_random_set->weapon_type_weight_tables.at(table_index).at(section_id)};
   pt.shuffle(this->rand_crypt);
 
-  vector<ItemData> shop;
+  std::vector<ItemData> shop;
   while (shop.size() < num_items) {
     ItemData item;
 
+    const std::pair<uint8_t, uint8_t>* def;
     uint8_t which = pt.pop();
     if (which == 0x39) {
-      static const vector<pair<uint8_t, uint8_t>> defs({
-          {0x28, 0x00},
-          {0x2A, 0x00},
-          {0x2B, 0x00},
-          {0x35, 0x00},
-          {0x52, 0x00},
-          {0x48, 0x00},
-          {0x64, 0x00},
-          {0x59, 0x00},
-          {0x8A, 0x00},
-          {0x99, 0x00},
-      });
-      const auto& def = defs.at(this->section_id);
-      item.data1[0] = 0;
-      item.data1[1] = def.first;
-      item.data1[2] = def.second;
-
+      def = &WeaponShopRandomSet::type_defs_39.at(this->section_id);
     } else if (which == 0x3A) {
-      static const vector<pair<uint8_t, uint8_t>> defs({
-          {0x99, 0x00},
-          {0x64, 0x00},
-          {0x8A, 0x00},
-          {0x28, 0x00},
-          {0x59, 0x00},
-          {0x2B, 0x00},
-          {0x52, 0x00},
-          {0x2A, 0x00},
-          {0x48, 0x00},
-          {0x35, 0x00},
-      });
-      const auto& def = defs.at(this->section_id);
-      item.data1[0] = 0;
-      item.data1[1] = def.first;
-      item.data1[2] = def.second;
-
+      def = &WeaponShopRandomSet::type_defs_3A.at(this->section_id);
     } else {
-      static const vector<pair<uint8_t, uint8_t>> defs({
-          /* 00 */ {0x01, 0x00},
-          /* 01 */ {0x01, 0x01},
-          /* 02 */ {0x01, 0x02},
-          /* 03 */ {0x01, 0x03},
-          /* 04 */ {0x01, 0x04},
-          /* 05 */ {0x03, 0x00},
-          /* 06 */ {0x03, 0x01},
-          /* 07 */ {0x03, 0x02},
-          /* 08 */ {0x03, 0x03},
-          /* 09 */ {0x03, 0x04},
-          /* 0A */ {0x02, 0x00},
-          /* 0B */ {0x02, 0x01},
-          /* 0C */ {0x02, 0x02},
-          /* 0D */ {0x02, 0x03},
-          /* 0E */ {0x02, 0x04},
-          /* 0F */ {0x05, 0x00},
-          /* 10 */ {0x05, 0x01},
-          /* 11 */ {0x05, 0x02},
-          /* 12 */ {0x05, 0x03},
-          /* 13 */ {0x05, 0x04},
-          /* 14 */ {0x04, 0x00},
-          /* 15 */ {0x04, 0x01},
-          /* 16 */ {0x04, 0x02},
-          /* 17 */ {0x04, 0x03},
-          /* 18 */ {0x04, 0x04},
-          /* 19 */ {0x06, 0x00},
-          /* 1A */ {0x06, 0x01},
-          /* 1B */ {0x06, 0x02},
-          /* 1C */ {0x06, 0x03},
-          /* 1D */ {0x06, 0x04},
-          /* 1E */ {0x07, 0x00},
-          /* 1F */ {0x07, 0x01},
-          /* 20 */ {0x07, 0x02},
-          /* 21 */ {0x07, 0x03},
-          /* 22 */ {0x07, 0x04},
-          /* 23 */ {0x08, 0x00},
-          /* 24 */ {0x08, 0x01},
-          /* 25 */ {0x08, 0x02},
-          /* 26 */ {0x08, 0x03},
-          /* 27 */ {0x08, 0x04},
-          /* 28 */ {0x09, 0x00},
-          /* 29 */ {0x09, 0x01},
-          /* 2A */ {0x09, 0x02},
-          /* 2B */ {0x09, 0x03},
-          /* 2C */ {0x09, 0x04},
-          /* 2D */ {0x0A, 0x00},
-          /* 2E */ {0x0A, 0x01},
-          /* 2F */ {0x0A, 0x02},
-          /* 30 */ {0x0A, 0x03},
-          /* 31 */ {0x0B, 0x00},
-          /* 32 */ {0x0B, 0x01},
-          /* 33 */ {0x0B, 0x02},
-          /* 34 */ {0x0B, 0x03},
-          /* 35 */ {0x0C, 0x00},
-          /* 36 */ {0x0C, 0x01},
-          /* 37 */ {0x0C, 0x02},
-          /* 38 */ {0x0C, 0x03},
-          /* 39 */ {0xFF, 0xFF}, // Special-cased above
-          /* 3A */ {0xFF, 0xFF}, // Special-cased above
-          /* 3B */ {0x01, 0x05},
-          /* 3C */ {0x02, 0x05},
-          /* 3D */ {0x06, 0x05},
-          /* 3E */ {0x08, 0x05},
-          /* 3F */ {0x0A, 0x04},
-          /* 40 */ {0x0C, 0x04},
-          /* 41 */ {0x0B, 0x04},
-          /* 42 */ {0x01, 0x06},
-          /* 43 */ {0x03, 0x05},
-          /* 44 */ {0x07, 0x05},
-          /* 45 */ {0x0A, 0x05},
-          /* 46 */ {0x0C, 0x05},
-          /* 47 */ {0x0B, 0x05},
-      });
-      const auto& def = defs.at(which);
-      item.data1[0] = 0;
-      item.data1[1] = def.first;
-      item.data1[2] = def.second;
+      def = &WeaponShopRandomSet::type_defs.at(which);
     }
+    item.data1[0] = 0;
+    item.data1[1] = def->first;
+    item.data1[2] = def->second;
 
     this->generate_weapon_shop_item_grind(item, player_level);
     this->generate_weapon_shop_item_special(item, player_level);
@@ -1559,18 +1420,17 @@ void ItemCreator::generate_weapon_shop_item_grind(ItemData& item, size_t player_
     table_index = 5;
   }
 
-  uint8_t favored_weapon = favored_weapon_by_section_id.at(this->section_id);
+  uint8_t favored_weapon = TekkerAdjustmentSet::favored_weapon_type_for_section_id(this->section_id);
   bool is_favored = (favored_weapon != 0xFF) && (item.data1[1] == favored_weapon);
-  const auto* range = is_favored
-      ? this->weapon_random_set->get_favored_grind_range(table_index)
-      : this->weapon_random_set->get_standard_grind_range(table_index);
+  const auto& range = is_favored
+      ? this->weapon_random_set->favored_grind_range_table.at(table_index)
+      : this->weapon_random_set->default_grind_range_table.at(table_index);
 
   const auto& weapon_def = this->item_parameter_table->get_weapon(item.data1[1], item.data1[2]);
-  item.data1[3] = clamp<uint8_t>(this->rand_int(range->max + 1), range->min, weapon_def.max_grind);
+  item.data1[3] = std::clamp<uint8_t>(this->rand_int(range.max + 1), range.min, weapon_def.max_grind);
 }
 
 void ItemCreator::generate_weapon_shop_item_special(ItemData& item, size_t player_level) {
-  ProbabilityTable<uint8_t, 100> pt;
 
   size_t table_index;
   if (player_level < 11) {
@@ -1591,16 +1451,11 @@ void ItemCreator::generate_weapon_shop_item_special(ItemData& item, size_t playe
     table_index = 7;
   }
 
-  const auto* table = this->weapon_random_set->get_special_mode_table(table_index);
-  for (size_t z = 0; z < table->size(); z++) {
-    const auto& e = table->at(z);
-    for (size_t y = 0; y < e.weight; y++) {
-      pt.push(e.value);
-    }
-  }
+  ProbabilityTable<uint32_t, 100> pt{this->weapon_random_set->special_mode_table.at(table_index)};
+  pt.shuffle(this->rand_crypt);
 
-  // Note: The original code shuffles pt and then pops a single value from it.
-  // For simplicity, we just sample a single value (and don't pop it) instead.
+  // Note: The original code shuffles pt and then pops a single value from it. For simplicity, we just sample a single
+  // value instead.
   switch (pt.sample(this->rand_crypt)) {
     case 0:
       item.data1[4] = 0;
@@ -1612,15 +1467,11 @@ void ItemCreator::generate_weapon_shop_item_special(ItemData& item, size_t playe
       item.data1[4] = this->choose_weapon_special(1);
       break;
     default:
-      throw runtime_error("invalid special mode");
+      throw std::runtime_error("invalid special mode");
   }
 }
 
-static const array<int8_t, 20> bonus_values = {
-    -50, -45, -40, -35, -30, -25, -20, -15, -10, -5, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50};
-
-void ItemCreator::generate_weapon_shop_item_bonus1(
-    ItemData& item, size_t player_level) {
+void ItemCreator::generate_weapon_shop_item_bonus1(ItemData& item, size_t player_level) {
   size_t table_index;
   if (player_level < 4) {
     table_index = 0;
@@ -1642,24 +1493,17 @@ void ItemCreator::generate_weapon_shop_item_bonus1(
     table_index = 8;
   }
 
-  const auto* type_table = this->weapon_random_set->get_bonus_type_table(0, table_index);
-  ProbabilityTable<uint8_t, 100> pt;
-  for (size_t z = 0; z < type_table->size(); z++) {
-    const auto& e = type_table->at(z);
-    for (size_t y = 0; y < e.weight; y++) {
-      pt.push(e.value);
-    }
-  }
+  ProbabilityTable<uint32_t, 100> pt{this->weapon_random_set->bonus_type_table1.at(table_index)};
+  pt.shuffle(this->rand_crypt);
 
-  // Note: The original code shuffles pt and then pops a single value from it.
-  // For simplicity, we just sample a single value (and don't pop it) instead.
+  // Note: The original code shuffles pt and then pops a single value from it. For simplicity, we just sample a single
+  // value instead.
   item.data1[6] = pt.sample(this->rand_crypt);
   if (item.data1[6] == 0) {
     item.data1[7] = 0;
-
   } else {
-    const auto* range = this->weapon_random_set->get_bonus_range(0, table_index);
-    item.data1[7] = bonus_values.at(max<size_t>(this->rand_int(range->max + 1), range->min));
+    const auto& range = this->weapon_random_set->bonus_range_table1.at(table_index);
+    item.data1[7] = WeaponShopRandomSet::bonus_values.at(std::max<size_t>(this->rand_int(range.max + 1), range.min));
   }
 }
 
@@ -1685,14 +1529,7 @@ void ItemCreator::generate_weapon_shop_item_bonus2(ItemData& item, size_t player
     table_index = 8;
   }
 
-  const auto* type_table = this->weapon_random_set->get_bonus_type_table(1, table_index);
-  ProbabilityTable<uint8_t, 100> pt;
-  for (size_t z = 0; z < type_table->size(); z++) {
-    const auto& e = type_table->at(z);
-    for (size_t y = 0; y < e.weight; y++) {
-      pt.push(e.value);
-    }
-  }
+  ProbabilityTable<uint32_t, 100> pt{this->weapon_random_set->bonus_type_table2.at(table_index)};
   pt.shuffle(this->rand_crypt);
 
   do {
@@ -1701,10 +1538,9 @@ void ItemCreator::generate_weapon_shop_item_bonus2(ItemData& item, size_t player
 
   if (item.data1[8] == 0) {
     item.data1[9] = 0;
-
   } else {
-    const auto* range = this->weapon_random_set->get_bonus_range(1, table_index);
-    item.data1[9] = bonus_values.at(max<size_t>(this->rand_int(range->max + 1), range->min));
+    const auto& range = this->weapon_random_set->bonus_range_table2.at(table_index);
+    item.data1[9] = WeaponShopRandomSet::bonus_values.at(std::max<size_t>(this->rand_int(range.max + 1), range.min));
   }
 }
 
@@ -1756,7 +1592,7 @@ ItemData ItemCreator::base_item_for_specialized_box(uint32_t param4, uint32_t pa
       item.data2d = ((param5 >> 0x10) & 0xFFFF) * 10;
       break;
     default:
-      throw runtime_error("invalid item class");
+      throw std::runtime_error("invalid item class");
   }
 
   return item;
@@ -1764,61 +1600,64 @@ ItemData ItemCreator::base_item_for_specialized_box(uint32_t param4, uint32_t pa
 
 ssize_t ItemCreator::apply_tekker_deltas(ItemData& item, uint8_t section_id) {
   if (item.data1[0] != 0) {
-    throw runtime_error("tekker deltas can only be applied to weapons");
+    throw std::runtime_error("tekker deltas can only be applied to weapons");
   }
 
-  static const array<int8_t, 11> delta_table = {-10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10};
-
-  bool favored = item.data1[1] == favored_weapon_by_section_id[section_id];
+  bool favored = (item.data1[1] == TekkerAdjustmentSet::favored_weapon_type_for_section_id(section_id));
   ssize_t luck = 0;
 
   this->log.info_f("Applying tekker deltas for {} weapon", favored ? "favored" : "non-favored");
 
+  auto sample_prob_table = [this](const TekkerAdjustmentSet::Table& table) -> int8_t {
+    size_t sample = this->rand_crypt->next() % table.total;
+    for (const auto& [k, v] : table.probs) {
+      if (sample < v) {
+        return k;
+      }
+      sample -= v;
+    }
+    throw std::logic_error("Table total is incorrect");
+  };
+
   // Adjust the weapon's special
   {
-    const auto& prob_table = this->tekker_adjustment_set->get_special_upgrade_prob_table(section_id, favored);
-    uint8_t delta_index = prob_table.sample(this->rand_crypt);
-    int8_t delta = delta_table.at(delta_index);
-    this->log.info_f("(Special) Delta index {}, delta {}", delta_index, delta);
-    // Note: The original code checks specifically for -1 and +1 here, but the
-    // data files only include delta_indexes 4, 5, and 6 (which correspond to -1,
-    // 0, and 1) anyway, so we just check for positive and negative numbers
-    // instead. When using the original JudgeItem.rel file, the behavior should
-    // be the same, but this feels more correct.
-    try {
-      uint8_t new_special;
-      if (delta < 0) {
-        new_special = item.data1[4] - 1;
-      } else if (delta > 0) {
-        new_special = item.data1[4] + 1;
-      } else {
-        new_special = item.data1[4];
-      }
-      if (new_special != item.data1[4]) {
+    int8_t delta = sample_prob_table(favored
+            ? this->tekker_adjustment_set->favored_special_delta_table[section_id]
+            : this->tekker_adjustment_set->default_special_delta_table[section_id]);
+    this->log.info_f("(Special) Delta {} chosen", delta);
+    for (; delta != 0; delta += (delta < 0) - (0 < delta)) {
+      try {
+        // Note: The original code checks specifically for -1 and +1 here and only increments or decrements the special
+        // by 1, and the data files only include delta_indexes 4, 5, and 6 (which correspond to -1, 0, and 1). But we
+        // want to support other levels of delta indexes, so we simply add delta instead. When using the original
+        // JudgeItem.rel file, the behavior should be the same, but this logic feels more correct.
+        uint8_t new_special = item.data1[4] + delta;
         if (this->item_parameter_table->get_special(item.data1[4]).type ==
             this->item_parameter_table->get_special(new_special).type) {
           item.data1[4] = new_special;
+          this->log.info_f("(Special) Delta {} applied", delta);
+          break;
         } else {
-          this->log.info_f("(Special) Delta canceled because it would change special category");
+          this->log.info_f("(Special) Delta {} canceled because it would change special category", delta);
         }
+      } catch (const std::out_of_range&) {
+        // Invalid special number passed to get_special; treat it as if delta == 0
       }
-    } catch (const out_of_range&) {
-      // Invalid special number passed to get_special; just ignore it
     }
-    luck += this->tekker_adjustment_set->get_luck_for_special_upgrade(delta_index);
+    luck += this->tekker_adjustment_set->special_luck_table.at(delta);
     this->log.info_f("(Special) Luck is now {}", luck);
   }
 
   // Adjust the weapon's grind if it's not rare
   if (!this->item_parameter_table->is_item_rare(item)) {
     const auto& weapon_def = this->item_parameter_table->get_weapon(item.data1[1], item.data1[2]);
-    const auto& prob_table = this->tekker_adjustment_set->get_grind_delta_prob_table(section_id, favored);
-    uint8_t delta_index = prob_table.sample(this->rand_crypt);
-    int8_t delta = delta_table.at(delta_index);
-    this->log.info_f("(Grind) Delta index {}, delta {}", delta_index, delta);
+    int8_t delta = sample_prob_table(favored
+            ? this->tekker_adjustment_set->favored_grind_delta_table[section_id]
+            : this->tekker_adjustment_set->default_grind_delta_table[section_id]);
+    this->log.info_f("(Grind) Delta {} chosen", delta);
     int16_t new_grind = static_cast<int16_t>(item.data1[3]) + static_cast<int16_t>(delta);
-    item.data1[3] = clamp<int16_t>(new_grind, 0, weapon_def.max_grind);
-    luck += this->tekker_adjustment_set->get_luck_for_grind_delta(delta_index);
+    item.data1[3] = std::clamp<int16_t>(new_grind, 0, weapon_def.max_grind);
+    luck += this->tekker_adjustment_set->grind_luck_table.at(delta);
     this->log.info_f("(Grind) Luck is now {}", luck);
   } else {
     this->log.info_f("(Grind) Item is rare; skipping grind adjustment");
@@ -1826,22 +1665,19 @@ ssize_t ItemCreator::apply_tekker_deltas(ItemData& item, uint8_t section_id) {
 
   // Adjust the weapon's bonuses
   {
-    const auto& prob_table = this->tekker_adjustment_set->get_bonus_delta_prob_table(section_id, favored);
-    // Note: The original code really does use the same delta for all three
-    // bonuses.
-    uint8_t delta_index = prob_table.sample(this->rand_crypt);
-    int8_t delta = delta_table.at(delta_index);
-    this->log.info_f("(Bonuses) Delta index {}, delta {}", delta_index, delta);
-    // Note: The original code doesn't check if there's actually a bonus in each
-    // slot before incrementing the values. Presumably there's a check later
-    // that will clear any invalid bonuses, but we don't have such a check, so
-    // we need to check here if each bonus is actually present.
+    int8_t delta = sample_prob_table(favored
+            ? this->tekker_adjustment_set->favored_bonus_delta_table[section_id]
+            : this->tekker_adjustment_set->default_bonus_delta_table[section_id]);
+    this->log.info_f("(Bonuses) Delta {} chosen", delta);
+    // Note: The original code doesn't check if there's actually a bonus in each slot before incrementing the values.
+    // Presumably there's a check later that will clear any invalid bonuses, but we don't have such a check, so we need
+    // to check here if each bonus is actually present.
     for (size_t z = 6; z <= 10; z += 2) {
       if (item.data1[z] >= 1 && item.data1[z] <= 5) {
-        item.data1[z + 1] = min<int8_t>(item.data1[z + 1] + delta, 100);
+        item.data1[z + 1] = std::min<int8_t>(item.data1[z + 1] + delta, 100);
       }
     }
-    luck += this->tekker_adjustment_set->get_luck_for_bonus_delta(delta_index);
+    luck += this->tekker_adjustment_set->bonus_luck_table.at(delta);
     this->log.info_f("(Bonuses) Luck is now {}", luck);
   }
 

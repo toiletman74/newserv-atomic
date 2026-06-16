@@ -144,7 +144,7 @@ struct S_ServerInit_Patch_02 {
 } __packed_ws__(S_ServerInit_Patch_02, 0x48);
 
 // 02 (C->S): Encryption started
-// No arguments
+// No arguments.
 
 // 03: Invalid command
 
@@ -163,7 +163,7 @@ struct C_Login_Patch_04 {
 } __packed_ws__(C_Login_Patch_04, 0x6C);
 
 // 05 (S->C): Disconnect
-// No arguments
+// No arguments.
 // This command is not used in the normal flow (described above). Generally the server should disconnect after sending
 // a 12 or 15 command instead of an 05.
 
@@ -203,10 +203,10 @@ struct S_EnterDirectory_Patch_09 {
 } __packed_ws__(S_EnterDirectory_Patch_09, 0x40);
 
 // 0A (S->C): Exit directory
-// No arguments
+// No arguments.
 
 // 0B (S->C): Start patch session and go to patch root directory
-// No arguments
+// No arguments.
 
 // 0C (S->C): File checksum request
 
@@ -216,7 +216,7 @@ struct S_FileChecksumRequest_Patch_0C {
 } __packed_ws__(S_FileChecksumRequest_Patch_0C, 0x24);
 
 // 0D (S->C): End of file checksum requests
-// No arguments
+// No arguments.
 
 // 0E: Invalid command
 
@@ -229,7 +229,7 @@ struct C_FileInformation_Patch_0F {
 } __packed_ws__(C_FileInformation_Patch_0F, 0x0C);
 
 // 10 (C->S): End of file information command list
-// No arguments
+// No arguments.
 
 // 11 (S->C): Start file downloads
 
@@ -239,7 +239,7 @@ struct S_StartFileDownloads_Patch_11 {
 } __packed_ws__(S_StartFileDownloads_Patch_11, 0x08);
 
 // 12 (S->C): End patch session successfully
-// No arguments
+// No arguments.
 
 // 13 (S->C): Message box
 // Same format and usage as commands 1A/D5 on the game server (described below). On PSOBB, the message box appears in
@@ -251,14 +251,13 @@ struct S_StartFileDownloads_Patch_11 {
 // 14 (S->C): Reconnect
 // Same format and usage as command 19 on the game server (described below), except the port field is big-endian.
 
-template <typename PortT>
+template <bool BE>
 struct S_ReconnectT {
   be_uint32_t address = 0;
-  PortT port = 0;
+  U16T<BE> port = 0;
   le_uint16_t unused = 0;
-} __attribute__((packed));
-using S_Reconnect_Patch_14 = S_ReconnectT<be_uint16_t>;
-check_struct_size(S_Reconnect_Patch_14, 0x08);
+} __packed_ws_be__(S_ReconnectT, 0x08);
+using S_Reconnect_Patch_14 = S_ReconnectT<true>;
 
 // 15 (S->C): Login failure
 // No arguments. The client shows a message like "Incorrect game ID or password" and disconnects.
@@ -293,10 +292,10 @@ struct SC_TextHeader_01_06_11_B0_EE {
 // Command 17 should be used instead for the first connection.
 // All commands after this command will be encrypted with PSO V2 encryption on DC, PC, and GC Episodes 1&2 Trial
 // Edition, or PSO V3 encryption on other V3 versions. The (encrypted) response depends on the client's version:
-// - DC NTE clients will respond with 8B.
-// - DC 11/2000 and DCv1 clients will respond with 93.
-// - DCv2, PCv2, and GC NTE clients will respond with an 9A, 9D, or 9E.
-// - V3 clients will respond with 9A or 9E command.
+// - DC NTE clients will respond with an 8B command.
+// - DC 11/2000 and DCv1 clients will respond with a 93 command.
+// - DCv2, PCv2, and GC NTE clients will respond with a 9A, 9D, or 9E command.
+// - V3 clients will respond with a 9A or 9E command.
 // The copyright field in the below structure must contain "DreamCast Lobby Server. Copyright SEGA Enterprises. 1999".
 // (The above text is required on all versions that use this command, including those versions that don't run on the
 // DreamCast.)
@@ -319,7 +318,7 @@ struct S_ServerInitWithAfterMessageT_DC_PC_V3_02_17_91_9B {
 // Internal name: SndRegist
 
 struct C_LegacyLogin_PC_V3_03 {
-  /* 00 */ be_uint64_t hardware_id;
+  /* 00 */ be_uint64_t hardware_id = 0;
   /* 08 */ le_uint32_t sub_version = 0;
   /* 0C */ uint8_t is_extended = 0;
   /* 0D */ Language language = Language::JAPANESE;
@@ -365,7 +364,7 @@ struct S_ServerInitWithAfterMessageT_BB_03_9B {
 // likely a relic of an older, now-unused sequence. Like 03, this command isn't used by any known PSO version.
 
 struct C_LegacyLogin_PC_V3_04 {
-  /* 00 */ be_uint64_t hardware_id;
+  /* 00 */ be_uint64_t hardware_id = 0;
   /* 08 */ le_uint32_t sub_version = 0;
   /* 0C */ uint8_t is_extended = 0;
   /* 0D */ Language language = Language::JAPANESE;
@@ -413,18 +412,18 @@ struct S_UpdateClientConfig_DC_PC_04 {
   le_uint32_t guild_card_number = 0;
 } __packed_ws__(S_UpdateClientConfig_DC_PC_04, 8);
 
-struct S_UpdateClientConfig_V3_04 {
+template <size_t ClientConfigBytes>
+struct S_UpdateClientConfigT_V3_BB_04 {
   le_uint32_t player_tag = 0x00010000;
   le_uint32_t guild_card_number = 0;
   // This field is opaque to the client; it will send back the contents verbatim in subsequent 9E or 9F commands.
-  parray<uint8_t, 0x20> client_config;
-} __packed_ws__(S_UpdateClientConfig_V3_04, 0x28);
+  parray<uint8_t, ClientConfigBytes> client_config;
+} __attribute__((packed));
 
-struct S_UpdateClientConfig_BB_04 {
-  le_uint32_t player_tag = 0x00010000;
-  le_uint32_t guild_card_number = 0;
-  parray<uint8_t, 0x28> client_config;
-} __packed_ws__(S_UpdateClientConfig_BB_04, 0x30);
+using S_UpdateClientConfig_V3_04 = S_UpdateClientConfigT_V3_BB_04<0x20>;
+using S_UpdateClientConfig_BB_04 = S_UpdateClientConfigT_V3_BB_04<0x28>;
+check_struct_size(S_UpdateClientConfig_V3_04, 0x28);
+check_struct_size(S_UpdateClientConfig_BB_04, 0x30);
 
 // 05: Disconnect
 // Internal name: SndLogout
@@ -494,16 +493,16 @@ struct S_MenuItemT {
   // - On BB, 0x40/0x41 mean Episodes 1/2 as on GC, and 0x43 means Episode 4.
   uint8_t episode = 0;
   // Flags (01 and 02 are used for all menus; the rest are only used for the game menu):
-  // 01 = Send name? (client sends the name field in the 10 command if this item is chosen, but it's blank)
-  // 02 = Locked (lock icon appears in the menu; player is prompted for a password if they choose this game)
-  // 04 = In battle (Episode 3 only; a sword icon appears in the menu)
-  // 04 = Disabled (BB only; used for solo games)
-  // 10 = Is battle mode
-  // 20 = Is challenge mode
-  // 40 = Is v2 only (DCv2/PC); game name renders in orange
-  // 40 = Is Episode 1 (V3/BB)
-  // 80 = Is Episode 2 (V3/BB)
-  // C0 = Is Episode 4 (BB)
+  //   01 = Send name? (client sends the name field in the 10 command if this item is chosen, but it's blank)
+  //   02 = Locked (lock icon appears in the menu; player is prompted for a password if they choose this game)
+  //   04 = In battle (Episode 3 only; a sword icon appears in the menu)
+  //   04 = Disabled (BB only; used for solo games)
+  //   10 = Is battle mode
+  //   20 = Is challenge mode
+  //   40 = Is v2 only (DCv2/PC); game name renders in orange
+  //   40 = Is Episode 1 (V3/BB)
+  //   80 = Is Episode 2 (V3/BB)
+  //   C0 = Is Episode 4 (BB)
   uint8_t flags = 0;
 } __attribute__((packed));
 using S_MenuItem_PC_BB_08 = S_MenuItemT<TextEncoding::UTF16>;
@@ -513,7 +512,7 @@ check_struct_size(S_MenuItem_DC_V3_08_Ep3_E6, 0x1C);
 
 // 08 (C->S): Request game list
 // Internal name: SndGameList
-// No arguments
+// No arguments.
 
 // 08 (S->C): Game list
 // Internal name: RcvGameList
@@ -530,6 +529,7 @@ struct C_MenuItemInfoRequest_09 {
   le_uint32_t item_id = 0;
 } __packed_ws__(C_MenuItemInfoRequest_09, 8);
 
+// 0A: Invalid command
 // 0B: Invalid command
 
 // 0C (C->S): Create game (DCv1)
@@ -709,10 +709,10 @@ struct C_WriteFileConfirmation_V3_BB_13_A7 {
 // Internal name: RcvPsoRegistConnectV2
 // Same format as 02 command, but a different copyright: "DreamCast Port Map. Copyright SEGA Enterprises. 1999"
 // The response depends on the client's version:
-// - DC NTE will respond with 8B.
-// - DC 11/2000 and DCv1 will respond with 90.
-// - DCv2, PCv2, and GC NTE clients will respond with 9A or 9D.
-// - V3 (GC/Xbox) clients will respond with a DB command when they receive a 17 command in any online
+// - DC NTE will respond with an 8B command.
+// - DC 11/2000 and DCv1 will respond with a 90 command.
+// - DCv2, PCv2, and GC NTE clients will respond with a 9A or 9D command.
+// - V3 (GC/Xbox) clients will respond with a DB command (but see the notes on DB for Xbox clients).
 
 // 18 (S->C): Account verification result (PC/V3)
 // Behaves exactly the same as 9A (S->C). No arguments except header.flag.
@@ -723,8 +723,7 @@ struct C_WriteFileConfirmation_V3_BB_13_A7 {
 // connection; the server should send an appropriate command to enable it when the client connects. PSO Xbox seems to
 // ignore the address field, which makes sense given its networking architecture.
 
-using S_Reconnect_19 = S_ReconnectT<le_uint16_t>;
-check_struct_size(S_Reconnect_19, 8);
+using S_Reconnect_19 = S_ReconnectT<false>;
 
 // Sylverant implements an IPv6 version of this command, but it's not obvious why. IPv6 technically did exist as a
 // draft standard at the time of PSO's development, but it wasn't widely used until over a decade later. IPv6 support
@@ -805,22 +804,29 @@ struct SC_GameGuardCheck_BB_0022 {
 } __packed_ws__(SC_GameGuardCheck_BB_0022, 0x10);
 
 // 0122 (C->S): Time deviation (BB)
-// This command is sent when the client executes a quest opcode 5D (gettime) and the returned timestamp is before the
-// previous timestamp returned, but not by too much - it seems the game only considers deltas between 3 seconds and 30
-// minutes suspicious for these purposes. This command is not valid on BB Trial Edition.
+// This command is not valid on BB Trial Edition.
+// This command is sent when all of the following happen:
+// 1. The client executes a quest opcode 5D (gettime).
+// 2. The timestamp is at least 30 seconds before (less than) the value returned by gettime the last time it was run.
+// 3. Conditions (1) and (2) were both true at least one other time within the past 30 minutes.
 // header.flag is always 1. It may be that this is actually a more general "set cheating flag" command, but it's only
 // used in the case described above; there are no other conditions that cause it to be sent.
 
 // 23 (S->C): Momoka Item Exchange result (BB)
-// Sent in response to a 6xD9 command from the client. header.flag indicates if an item was exchanged: 0 means success,
-// 1 means failure. This command is not valid on BB Trial Edition.
+// This command is not valid on BB Trial Edition.
+// Sent in response to a 6xD9 command from the client. header.flag indicates the result code:
+//   0 = success
+//   1 = currency item not found
+//   2 = inventory is full
+//   Anything else = generic failure
 
 // 24 (S->C): Secret Lottery Ticket exchange result (BB)
+// This command is not valid on BB Trial Edition.
 // Sent in response to a 6xDE command from the client. The client sets 8 sequential quest registers, starting with
 // start_reg_num, to the values specified in reg_values. Then it starts a new quest thread at the specified label.
-// header.flag indicates whether the client had any Secret Lottery Tickets in their inventory (and hence could
-// participate): 0 means success, 1 means failure. However, this value is unused by the client.
-// This command is not valid on BB Trial Edition.
+// According to logs from Sega's servers, header.flag indicates whether the client had any Secret Lottery Tickets in
+// their inventory (and hence could participate): 0 means success, 1 means failure. However, this value is unused by
+// the client.
 
 struct S_ExchangeSecretLotteryTicketResult_BB_24 {
   le_uint16_t label = 0;
@@ -830,16 +836,17 @@ struct S_ExchangeSecretLotteryTicketResult_BB_24 {
 } __packed_ws__(S_ExchangeSecretLotteryTicketResult_BB_24, 0x24);
 
 // 25 (S->C): Gallon's Plan result (BB)
-// Sent in response to a 6xE1 command from the client. The client sets the quest registers reg_num1 and reg_num2 to
-// value1 and value2 respectively, then starts a new quest thread at the specified label.
 // This command is not valid on BB Trial Edition.
+// Sent in response to a 6xE1 command from the client. The client sets the quest registers result_code_reg and
+// result_index_reg to result_code_value and result_index_value respectively, then starts a new quest thread at the
+// specified label.
 
 struct S_GallonPlanResult_BB_25 {
   le_uint16_t label = 0;
-  uint8_t reg_num1 = 0;
-  uint8_t reg_num2 = 0;
-  uint8_t value1 = 0;
-  uint8_t value2 = 0;
+  uint8_t result_code_reg = 0;
+  uint8_t result_index_reg = 0;
+  uint8_t result_code_value = 0; // See description of F95F (bb_exchange_pt) in QuestScript.cc for values here
+  uint8_t result_index_value = 0;
   le_uint16_t unused = 0;
 } __packed_ws__(S_GallonPlanResult_BB_25, 8);
 
@@ -853,7 +860,7 @@ struct S_GallonPlanResult_BB_25 {
 // 2D: Invalid command
 // 2E: Invalid command
 // 2F: Invalid command
-// 30: Invalid command
+// 30: Invalid command (but used as a newserv extension; see end of this file)
 // 31: Invalid command
 // 32: Invalid command
 // 33: Invalid command
@@ -1046,13 +1053,13 @@ struct PlayerRecordsEntry_BB {
 
 struct C_CharacterData_DCv1_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataDCPCV3 disp;
+  /* 034C */ PlayerDispDataV123 disp;
   /* 041C */
 } __packed_ws__(C_CharacterData_DCv1_61_98, 0x041C);
 
 struct C_CharacterData_DCv2_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataDCPCV3 disp;
+  /* 034C */ PlayerDispDataV123 disp;
   /* 041C */ PlayerRecordsEntry_DC records;
   /* 04D8 */ ChoiceSearchConfig choice_search_config;
   /* 04F0 */
@@ -1060,7 +1067,7 @@ struct C_CharacterData_DCv2_61_98 {
 
 struct C_CharacterData_PC_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataDCPCV3 disp;
+  /* 034C */ PlayerDispDataV123 disp;
   /* 041C */ PlayerRecordsEntry_PC records;
   /* 0510 */ ChoiceSearchConfig choice_search_config;
   /* 0528 */ parray<le_uint32_t, 0x1E> blocked_senders;
@@ -1072,7 +1079,7 @@ struct C_CharacterData_PC_61_98 {
 
 struct C_CharacterData_GCNTE_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataDCPCV3 disp;
+  /* 034C */ PlayerDispDataV123 disp;
   /* 041C */ PlayerRecordsEntry_DC records;
   /* 04D8 */ ChoiceSearchConfig choice_search_config;
   /* 04F0 */ parray<le_uint32_t, 0x1E> blocked_senders;
@@ -1084,7 +1091,7 @@ struct C_CharacterData_GCNTE_61_98 {
 
 struct C_CharacterData_V3_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataDCPCV3 disp;
+  /* 034C */ PlayerDispDataV123 disp;
   /* 041C */ PlayerRecordsEntry_V3 records;
   /* 0538 */ ChoiceSearchConfig choice_search_config;
   /* 0550 */ pstring<TextEncoding::MARKED, 0xAC> info_board;
@@ -1097,7 +1104,7 @@ struct C_CharacterData_V3_61_98 {
 
 struct C_CharacterData_Ep3_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataDCPCV3 disp;
+  /* 034C */ PlayerDispDataV123 disp;
   /* 041C */ PlayerRecordsEntry_V3 records;
   /* 0538 */ ChoiceSearchConfig choice_search_config;
   /* 0550 */ pstring<TextEncoding::MARKED, 0xAC> info_board;
@@ -1110,7 +1117,7 @@ struct C_CharacterData_Ep3_61_98 {
 
 struct C_CharacterData_BB_61_98 {
   /* 0000 */ PlayerInventory inventory;
-  /* 034C */ PlayerDispDataBB disp;
+  /* 034C */ PlayerDispDataV4 disp;
   /* 04DC */ PlayerRecordsEntry_BB records;
   /* 0638 */ ChoiceSearchConfig choice_search_config;
   /* 0650 */ pstring<TextEncoding::UTF16, 0xAC> info_board;
@@ -1132,23 +1139,43 @@ struct C_CharacterData_BB_61_98 {
 // 64 (S->C): Join game
 // Internal name: RcvStartGame3
 
-// This is sent to the joining player; the other players get a 65 instead. Note that (except on Episode 3) this command
-// does not include the player's disp or inventory data. The clients in the game are responsible for sending that data
-// to each other during the join process with 60/62/6C/6D commands.
-
-// After receiving a 64 command, the client starts the game loading procedure, during which it will completely ignore
-// other 64 or 65 commands, and will delay processing of all other commands except 1D until loading is done. If more
-// than 0x10000 bytes of commands are sent during loading, any commands that don't fit in the buffer are lost.
-
 // Curiously, this command is named RcvStartGame3 internally, while 0E is named RcvStartGame. The string RcvStartGame2
 // appears in the DC versions, but it seems the relevant code was deleted - there are no references to the string.
+
+// The game joining procedure goes as follows:
+// 1. The server sends 64 to the joining player, and 65 to all other players in the game. This pauses the game and
+//    brings up the "please wait" message box for all players. The joining player unloads the lobby assets and begins
+//    loading Pioneer 2 assets. On v2 and later, the joining player sends 8A near the beginning of this procedure.
+//    During this time, the joining player will completely ignore other 64 or 65 commands, and will delay processing of
+//    all other commands except 1D until loading is done. If more than 0x10000 bytes of commands are sent during
+//    loading, any commands that don't fit in the buffer are lost.
+// 2. If the joining player is not the only player in the game:
+//    a. If the leader is DC v1 or later, the leader sends 6x6D (item state).
+//    b. The leader sends 6x6B (enemy state).
+//    c. The leader sends 6x6C (object state).
+//    d. If the leader is DC NTE or DC 11/2000, the leader sends 6x6D (item state).
+//    e. The leader sends 6x6E (set flag state).
+//    f. If the leader is DC v1 or later, the leader sends 6x6F (quest flag state).
+//    g. If the leader is DC v1 or later, the leader sends 6x71 (construct player).
+//    h. All players except the joining player send 6x70 to the joining player. (This is not synchronized; non-leader
+//       players do not wait for any of the above things to happen, so their 6x70 commands may be interleaved with the
+//       preceding commands from the leader, or may arrive after the following 6x72.) Character data is sent in a
+//       different format here (6x70 instead of 65) because it contains ephemeral fields that the server doesn't know
+//       about - things like current HP, state, game flags, player flags, etc. which are not present in 65.
+//    i. If the leader is not BB, the leader sends 6x72 to all players, which resumes the game. If the leader is BB,
+//       the server is responsible for sending 6x72, and should do so here. (There is no sequence-breaking risk here,
+//       since the 6x72 sent to other players will always be ordered after the 65 from the server, so they will always
+//       send a 6x70 containing their player state at the time the game was paused.)
+// 3. Once the joining player has fully loaded, the player processes all the commands sent during loading, which sets
+//    up the game state and constructs all the other players. Once the local player is constructed, the joining player
+//    sends 6F, which notifies the server that it can unlock the game and allow more players to join.
 
 // Header flag = entry count
 template <typename LobbyDataT>
 struct S_JoinGameT_DC_PC {
   // Note: It seems Sega servers sent uninitialized memory in the variations field when sending this command to start
   // an Episode 3 tournament game. This can be misleading when reading old logs from those days, but the Episode 3
-  // client really does ignore it.
+  // client ignores it.
   /* 0004 */ Variations variations;
   // Unlike lobby join commands, these are filled in in their slot positions. That is, if there's only one player in a
   // game with ID 2, then the first two of these are blank and the player's data is in the third entry here.
@@ -1188,7 +1215,7 @@ struct S_JoinGame_Ep3_64 : S_JoinGame_GC_64 {
   // four of these are always present and they are filled in in slot positions.
   struct Ep3PlayerEntry {
     PlayerInventory inventory;
-    PlayerDispDataDCPCV3 disp;
+    PlayerDispDataV123 disp;
   } __packed_ws__(Ep3PlayerEntry, 0x41C);
   parray<Ep3PlayerEntry, 4> players_ep3;
 } __packed_ws__(S_JoinGame_Ep3_64, 0x1180);
@@ -1226,12 +1253,12 @@ struct S_JoinGame_BB_64 : S_JoinGameT_DC_PC<PlayerLobbyDataBB> {
 // Similarly to 64, the client will ignore 64 and 65 commands while loading, and will buffer all other commands except
 // 1D until loading is done.
 
-struct LobbyFlags_DCNTE {
+struct LobbyFlagsDCNTE {
   uint8_t client_id = 0;
   uint8_t leader_id = 0;
   uint8_t disable_udp = 1;
   uint8_t unused = 0;
-} __packed_ws__(LobbyFlags_DCNTE, 4);
+} __packed_ws__(LobbyFlagsDCNTE, 4);
 
 struct LobbyFlags {
   uint8_t client_id = 0;
@@ -1265,10 +1292,10 @@ struct S_JoinLobbyT {
     return offsetof(S_JoinLobbyT, entries) + used_entries * sizeof(Entry);
   }
 } __attribute__((packed));
-using S_JoinLobby_DCNTE_65_67_68 = S_JoinLobbyT<LobbyFlags_DCNTE, PlayerLobbyDataDCGC, PlayerDispDataDCPCV3>;
-using S_JoinLobby_PC_65_67_68 = S_JoinLobbyT<LobbyFlags, PlayerLobbyDataPC, PlayerDispDataDCPCV3>;
-using S_JoinLobby_DC_GC_65_67_68_Ep3_EB = S_JoinLobbyT<LobbyFlags, PlayerLobbyDataDCGC, PlayerDispDataDCPCV3>;
-using S_JoinLobby_BB_65_67_68 = S_JoinLobbyT<LobbyFlags, PlayerLobbyDataBB, PlayerDispDataBB>;
+using S_JoinLobby_DCNTE_65_67_68 = S_JoinLobbyT<LobbyFlagsDCNTE, PlayerLobbyDataDCGC, PlayerDispDataV123>;
+using S_JoinLobby_PC_65_67_68 = S_JoinLobbyT<LobbyFlags, PlayerLobbyDataPC, PlayerDispDataV123>;
+using S_JoinLobby_DC_GC_65_67_68_Ep3_EB = S_JoinLobbyT<LobbyFlags, PlayerLobbyDataDCGC, PlayerDispDataV123>;
+using S_JoinLobby_BB_65_67_68 = S_JoinLobbyT<LobbyFlags, PlayerLobbyDataBB, PlayerDispDataV4>;
 check_struct_size(S_JoinLobby_DCNTE_65_67_68, 0x32D4);
 check_struct_size(S_JoinLobby_PC_65_67_68, 0x339C);
 check_struct_size(S_JoinLobby_DC_GC_65_67_68_Ep3_EB, 0x32DC);
@@ -1280,7 +1307,7 @@ struct S_JoinLobby_XB_65_67_68 {
   struct Entry {
     PlayerLobbyDataXB lobby_data;
     PlayerInventory inventory;
-    PlayerDispDataDCPCV3 disp;
+    PlayerDispDataV123 disp;
   } __packed_ws__(Entry, 0x468);
   // Note: not all of these will be filled in and sent if the lobby isn't full (the command size will be shorter than
   // this struct's size)
@@ -1502,7 +1529,7 @@ struct S_ArrowUpdateEntry_88 {
 // The server should respond with an 8A command.
 
 struct C_ConnectionInfo_DCNTE_8A {
-  be_uint64_t hardware_id;
+  be_uint64_t hardware_id = 0;
   le_uint32_t sub_version = 0x20;
   le_uint32_t unused = 0;
   pstring<TextEncoding::ASCII, 0x30> username;
@@ -1514,10 +1541,10 @@ struct C_ConnectionInfo_DCNTE_8A {
 // header.flag is a success flag. If it's zero, the client shows an error message and disconnects. Otherwise, the
 // client responds with an 8B command.
 
-// 8A (C->S): Request lobby/game name (except DC NTE)
-// No arguments
+// 8A (C->S): Request lobby/game name (DCv2 and later)
+// No arguments.
 
-// 8A (S->C): Lobby/game name (except DC NTE)
+// 8A (S->C): Lobby/game name (DCv2 and later)
 // Contents is a string containing the lobby or game name. All versions after DCv1 send an 8A command to request the
 // team name after joining a game. The response is used to handle the team_name token in quest strings, and appears in
 // some Challenge Mode information windows.
@@ -1529,7 +1556,7 @@ struct C_ConnectionInfo_DCNTE_8A {
 struct C_Login_DCNTE_8B {
   le_uint32_t player_tag = 0x00010000;
   le_uint32_t guild_card_number = 0;
-  be_uint64_t hardware_id;
+  be_uint64_t hardware_id = 0;
   le_uint32_t sub_version = 0x20;
   uint8_t is_extended = 0;
   Language language = Language::JAPANESE;
@@ -1568,7 +1595,7 @@ struct C_LoginV1_DC_PC_V3_90 {
   // despite its size not being a multiple of 4. This is fixed in later versions, so we have to handle both cases.
 } __packed_ws__(C_LoginV1_DC_PC_V3_90, 0x22);
 
-// 90 (S->C): Account verification result (V3)
+// 90 (S->C): Account verification result (DC/PC/V3)
 // Behaves exactly the same as 9A (S->C). No arguments except header.flag.
 
 // 91 (S->C): Start encryption at login server (legacy; non-BB only)
@@ -1582,7 +1609,7 @@ struct C_LoginV1_DC_PC_V3_90 {
 // 92 (C->S): Register (DC)
 
 struct C_RegisterV1_DC_92 {
-  be_uint64_t hardware_id;
+  be_uint64_t hardware_id = 0;
   le_uint32_t sub_version;
   uint8_t unused1 = 0;
   Language language = Language::JAPANESE;
@@ -1596,12 +1623,12 @@ struct C_RegisterV1_DC_92 {
 // Internal name: RcvPsoRegist
 // Same format and usage as 9C (S->C) command.
 
-// 93 (C->S): Log in (DCv1)
+// 93 (C->S): Log in (DCv1, BB)
 
 struct C_LoginV1_DC_93 {
   /* 00 */ le_uint32_t player_tag = 0x00010000;
   /* 04 */ le_uint32_t guild_card_number = 0;
-  /* 08 */ be_uint64_t hardware_id;
+  /* 08 */ be_uint64_t hardware_id = 0;
   /* 10 */ le_uint32_t sub_version = 0;
   /* 14 */ uint8_t is_extended = 0;
   /* 15 */ Language language = Language::JAPANESE;
@@ -1618,8 +1645,6 @@ struct C_LoginV1_DC_93 {
 struct C_LoginExtendedV1_DC_93 : C_LoginV1_DC_93 {
   SC_MeetUserExtension_DC_V3 extension;
 } __packed_ws__(C_LoginExtendedV1_DC_93, 0x110);
-
-// 93 (C->S): Log in (BB)
 
 struct C_LoginBase_BB_93 {
   /* 00 */ le_uint32_t player_tag = 0x00010000;
@@ -1657,7 +1682,7 @@ struct C_LoginWithoutHardwareInfo_BB_93 : C_LoginBase_BB_93 {
 
 struct C_LoginWithHardwareInfo_BB_93 : C_LoginBase_BB_93 {
   // See the comment in the above structure. This format is used on newer client versions.
-  /* 7C */ be_uint64_t hardware_id;
+  /* 7C */ be_uint64_t hardware_id = 0;
   /* 84 */ parray<uint8_t, 0x28> client_config;
   /* AC */
 } __packed_ws__(C_LoginWithHardwareInfo_BB_93, 0xAC);
@@ -1666,7 +1691,7 @@ struct C_LoginWithHardwareInfo_BB_93 : C_LoginBase_BB_93 {
 
 // 95 (S->C): Request player data
 // Internal name: RcvRecognition
-// No arguments
+// No arguments.
 // For some reason, some servers send high values in the header.flag field here. The header.flag field is completely
 // unused by the client, however - sending zero works just fine. The original Sega servers had some uninitialized
 // memory bugs, of which that may have been one, and other private servers may have just duplicated Sega's behavior.
@@ -1690,7 +1715,7 @@ struct C_CharSaveInfo_DCv2_PC_V3_BB_96 {
 
 // 97 (S->C): Save to memory card
 // Internal name: RcvSaveCountCheck
-// No arguments
+// No arguments.
 // Internally, this command is called RcvSaveCountCheck, even though the counter in the 96 command (to which 97 is a
 // reply) counts more events than saves. Sending this command with header.flag == 0 will show a message saying that
 // "character data was improperly saved", and will delete the character's items and challenge mode records. newserv
@@ -1710,7 +1735,7 @@ struct C_CharSaveInfo_DCv2_PC_V3_BB_96 {
 
 // 99 (C->S): Server time accepted
 // Internal name: SndPsoDirList
-// No arguments
+// No arguments.
 // This command's internal name suggests that it's actually a request for the ship select menu, but it's only sent as
 // the response to a B1 command (server time) and the client doesn't set any state to indicate it's waiting for a ship
 // select menu, so we just treat it as confirmation of a received B1 command instead.
@@ -1755,21 +1780,20 @@ struct C_Login_DC_PC_V3_9A {
 //   13 = servers under maintenance (118)
 // Seems like most (all?) of the rest of the codes are "network error" (119).
 
-// 9B (S->C): Secondary server init (non-BB, non-DCv1)
-// Behaves exactly the same as 17 (S->C).
-
-// 9B (S->C): Secondary server init (BB)
-// Format is the same as 03 (and the client uses the same encryption afterward). The only differences:
+// 9B (S->C): Secondary server init (DCv2 and later)
+// On versions before BB, this command behaves exactly the same as 17 (S->C).
+// On BB, the format of this command is the same as 03 (and the client uses the same encryption afterward). The only
+// differences are:
 // - 9B does not work during the data-server phase (before the client has reached the ship select menu), but 03 does.
 // - For command 9B, the copyright string must be "PSO NEW PM Server. Copyright 1999-2002 SONICTEAM.".
-// - The client will respond to 9B with DB instead of 93.
+// - The client will respond to this command with a DB command instead of a 93 command.
 
 // 9C (C->S): Register
 // Internal name: SndPsoRegist
 // It appears PSO GC sends uninitialized data in the header.flag field here.
 
 struct C_Register_DC_PC_V3_9C {
-  /* 00 */ be_uint64_t hardware_id;
+  /* 00 */ be_uint64_t hardware_id = 0;
   /* 08 */ le_uint32_t sub_version = 0;
   /* 0C */ uint8_t unused1 = 0;
   /* 0D */ Language language = Language::JAPANESE;
@@ -1815,16 +1839,16 @@ struct C_Login_DC_PC_GC_9D {
   //   other bytes are all zeroes.
   // - V3: the hardware ID is all zeroes.
   // On the client, this is actually an array of 8 bytes, but we treat it as a single integer for simplicity.
-  /* 08 */ be_uint64_t hardware_id;
+  /* 08 */ be_uint64_t hardware_id = 0;
   /* 10 */ le_uint32_t sub_version = 0;
   /* 14 */ uint8_t is_extended = 0; // If 1, structure has extended format
-  /* 15 */ Language language = Language::JAPANESE; // 0 = JP, 1 = EN, 2 = DE, 3 = FR, 4 = ES
+  /* 15 */ Language language = Language::JAPANESE;
   /* 16 */ parray<uint8_t, 0x2> unused3; // Always zeroes
   /* 18 */ pstring<TextEncoding::ASCII, 0x10> v1_serial_number;
   /* 28 */ pstring<TextEncoding::ASCII, 0x10> v1_access_key;
   /* 38 */ pstring<TextEncoding::ASCII, 0x10> serial_number; // On XB, this is the XBL gamertag
   /* 48 */ pstring<TextEncoding::ASCII, 0x10> access_key; // On XB, this is the XBL user ID
-  /* 58 */ pstring<TextEncoding::ASCII, 0x30> serial_number2; // On DCv2, this is the hardware ID; on XB, this is the XBL gamertag
+  /* 58 */ pstring<TextEncoding::ASCII, 0x30> serial_number2; // DCv2: hardware ID; XB: XBL gamertag
   /* 88 */ pstring<TextEncoding::ASCII, 0x30> access_key2; // On XB, this is the XBL user ID
   /* B8 */ pstring<TextEncoding::ASCII, 0x10> login_character_name;
   /* C8 */
@@ -1928,7 +1952,7 @@ struct C_ChangeShipOrBlock_A0_A1 {
 // Same as 07 command.
 
 // A2 (C->S): Request quest menu
-// No arguments
+// No arguments.
 
 // A2 (S->C): Quest menu
 // Client will respond with an 09, 10, or A9 command. For 09, the server should send the category or quest description
@@ -2006,7 +2030,7 @@ struct S_QuestMenuEntry_BB_A2_A4 {
 
 // A9 (C->S): Quest menu closed (canceled)
 // Internal name: SndQuestEnd
-// No arguments
+// No arguments.
 // This command is sent when the in-game quest menu (A2) is closed. This is used by the server to unlock the game if
 // the players don't select a quest, since players are forbidden from joining while the quest menu is open. When the
 // download quest menu is closed, either by downloading a quest or canceling, the client sends A0 instead.
@@ -2140,7 +2164,7 @@ struct S_RankUpdate_Ep3_B7 {
 } __packed_ws__(S_RankUpdate_Ep3_B7, 0x1C);
 
 // B7 (C->S): Confirm rank update (Episode 3)
-// No arguments
+// No arguments.
 // The client sends this after it receives a B7 from the server.
 
 // B8 (S->C): Update card definitions (Episode 3)
@@ -2151,7 +2175,7 @@ struct S_RankUpdate_Ep3_B7 {
 // Note: PSO BB accepts this command as well, but ignores it.
 
 // B8 (C->S): Confirm updated card definitions (Episode 3)
-// No arguments
+// No arguments.
 // The client sends this after it receives a B8 from the server.
 
 // B8 (C->S): Valid but ignored (BB)
@@ -2449,21 +2473,33 @@ struct S_ConfirmTournamentEntry_Ep3_CC {
 // CF: Invalid command
 
 // D0 (C->S): Start trade sequence (V3/BB)
-// The trade window sequence is a bit complicated. On pre-BB versions, the normal flow is:
+// The trade window sequence is a bit complicated. On pre-BB versions, the sequence is:
 // - Clients sync trade state with 6xA6 commands
-// - When both have confirmed, one client (the initiator) sends D0
-// - The server sends D1 to the other client (the responder)
-// - The responder sends D0
+// - When both have confirmed, one client (the initiator) sends D0 with the items it intends to give to the other
+//   player (the responder)
+// - The server sends D1 to the responder
+// - The responder sends D0 with its own item list
 // - The server sends D1 to both clients
-// - Both clients delete the sent items from their inventories and send the appropriate subcommand (6x29)
+// - Both clients delete the sent items from their inventories and send the appropriate subcommands (6x29)
 // - Both clients send D2; similarly to how AC works, the server doesn't proceed until both D2 commands are received
 // - The server sends D3 to both clients with each other's data from their D0 commands, followed immediately by D4 01
 //   to both clients, which completes the trade
-// - Both clients send the appropriate subcommand to create inventory items
-// On BB, the flow is similar, except after both D2 commands are received, the server instead handles the rest of the
-// process - it sends 6x29 commands to delete the inventory items and 6xBE to create the traded items.
-// At any point if an error occurs, either client may send a D4 00, which cancels the entire sequence. The server
-// should then send D4 00 to both clients.
+// - Both clients send the appropriate subcommands to create inventory items (6x5E)
+// On BB, the sequence is:
+// - Clients sync trade state with 6xA6 commands
+// - When both have confirmed, one client (the initiator) sends D0 with the items it intends to give to the other
+//   player (the responder)
+// - The server sends D1 to the responder
+// - The responder sends D0 with its own item list
+// - The server sends D1 to both clients
+// - Both clients send D2; similarly to how AC works, the server doesn't proceed until both D2 commands are received
+// - The server executes the trade by sending 6x29 for each item given away from each player, followed by 6xBE to
+//   create each item in the other player's inventory (note that all 6x29 commands must be sent before any 6xBE
+//   command, since the client's item state may desync if one player's inventory is full and they receive a 6xBE)
+// - The server sends D3 followed immediately by D4 01 to both clients, which completes the trade; unlike in the pre-BB
+//   case, the D3 commands are empty (no item list is sent)
+// At any point if an error occurs, either client may send D4 00, which cancels the entire sequence. The server should
+// then send D4 00 to both clients.
 
 struct SC_TradeItems_D0_D3 { // D0 when sent by client, D3 when sent by server
   le_uint16_t target_client_id = 0;
@@ -2484,19 +2520,20 @@ struct SC_TradeItems_D0_D3 { // D0 when sent by client, D3 when sent by server
 // On BB, this command has no arguments (and the server generates the appropriate delete and create inventory item
 // commands), but the D3 command must still must be sent before the D4 command to advance the trade state.
 
-// D4 (C->S): Trade failed (V3/BB)
+// D4 (C->S): Cancel/fail trade sequence (V3/BB)
 // No arguments. See the description of D0 for usage information.
 
 // D4 (S->C): Trade complete (V3/BB)
 // header.flag must be 0 (trade failed) or 1 (trade complete). See the description of D0 for usage information.
 
-// D5: Large message box (V3/BB)
+// D5 (S->C): Large message box (V3/BB)
 // Same as 1A command, except the maximum length of the message is 0x1000 bytes. On BB, this command is not valid
 // during the data server phase (whereas 1A is valid there). The BB client ignores all D5 commands after the first one
-// sent in each connection; this logic does not apply to 1A.
+// sent in each connection; this logic does not apply to 1A. This logic was added for some reason in BB; V3 does not
+// have this restriction.
 
 // D6 (C->S): Large message box closed (V3)
-// No arguments
+// No arguments.
 // DC, PC, and BB do not send this command at all. GC US v1.0 and v1.1 will send this command when any large message
 // box (1A/D5) is closed; GC Plus and Episode 3 will send D6 only for large message boxes that occur before the client
 // has joined a lobby. (After joining a lobby, large message boxes will still be displayed if sent by the server, but
@@ -2515,7 +2552,7 @@ struct C_GBAGameRequest_V3_D7 {
 } __packed_ws__(C_GBAGameRequest_V3_D7, 0x10);
 
 // D7 (S->C): GBA file not found (V3/BB)
-// No arguments
+// No arguments.
 // This command is not valid on PSO GC Episodes 1&2 Trial Edition. PSO BB accepts but completely ignores this command.
 // This command tells the client that the file it requested via a D7 command does not exist. This causes the F8C1
 // (get_dl_status) quest opcode to return 0 (file not found), rather than 1 (download in progress) or 2 (complete).
@@ -2546,7 +2583,10 @@ check_struct_size(S_InfoBoardEntry_BB_D8, 0x178);
 // This command is not valid on PSO GC Episodes 1&2 Trial Edition.
 
 // DB (C->S): Verify license (V3/BB)
-// Server should respond with a 9A command.
+// Server should respond with a 9A command. But Insignia's proxy never sends this command to the remote server, so
+// newserv will only see this command from an Xbox client if it's connected through a different Xbox Live
+// implementation. For this reason, newserv does not check the credentials when it receives DB from an Xbox client; it
+// instead sends 9A and checks the credentials when the client subsequently sends 9E.
 
 struct C_VerifyAccount_V3_DB {
   pstring<TextEncoding::ASCII, 0x10> v1_serial_number; // Unused
@@ -2603,7 +2643,7 @@ struct C_GuildCardDataRequest_BB_03DC {
 // DD (S->C): Send quest state to joining player (BB)
 // When a player joins a game with a quest already in progress, the server should send this command to the leader.
 // No arguments except header.flag, which is the client ID that the leader should send quest state to. The leader will
-// then send a series of target commands (62/6D) that the server can forward to the joining player.
+// then send 6x6D, 6x6B, 6x6C, and 6x6E, in that order, targeted at the client specified in header.flag.
 
 // DE (S->C): Rare monster list (BB)
 
@@ -2908,7 +2948,7 @@ struct S_CardBattleTableConfirmation_Ep3_E5 {
 
 struct SC_PlayerPreview_CreateCharacter_BB_00E5 {
   le_int32_t character_index = 0;
-  PlayerDispDataBBPreview preview;
+  PlayerDispDataV4Preview preview;
 } __packed_ws__(SC_PlayerPreview_CreateCharacter_BB_00E5, 0x80);
 
 // E6 (C->S): Spectator team control (Episode 3)
@@ -2994,7 +3034,7 @@ struct S_JoinSpectatorTeam_Ep3_E8 {
   struct PlayerEntry {
     /* 0000 */ PlayerLobbyDataDCGC lobby_data;
     /* 0020 */ PlayerInventory inventory;
-    /* 036C */ PlayerDispDataDCPCV3 disp;
+    /* 036C */ PlayerDispDataV123 disp;
     /* 043C */
   } __packed_ws__(PlayerEntry, 0x43C);
   /* 0080 */ parray<PlayerEntry, 4> players;
@@ -3153,7 +3193,7 @@ struct SC_TeamChat_BB_07EA {
 } __packed_ws__(SC_TeamChat_BB_07EA, 0x20);
 
 // 08EA (C->S): Get team member list
-// No arguments
+// No arguments.
 
 // 09EA (S->C): Team member list
 
@@ -3180,7 +3220,7 @@ struct S_Unknown_BB_0CEA {
 } __packed_ws__(S_Unknown_BB_0CEA, 0x20);
 
 // 0DEA (C->S): Get team name
-// No arguments
+// No arguments.
 
 // 0EEA (S->C): Team name
 
@@ -3243,7 +3283,7 @@ struct S_TeamInfoForPlayer_BB_13EA_15EA_Entry {
 // No arguments except header.flag, which is zero if the transfer failed or nonzero if it succeeded.
 
 // 18EA: Intra-team ranking information
-// No arguments (C->S)
+// No arguments (C->S).
 
 struct S_IntraTeamRanking_BB_18EA {
   /* 0000 */ le_uint32_t ranking_points = 0;
@@ -3263,7 +3303,7 @@ struct S_IntraTeamRanking_BB_18EA {
 } __packed_ws__(S_IntraTeamRanking_BB_18EA, 0x10);
 
 // 19EA: Team reward list
-// No arguments (C->S)
+// No arguments (C->S).
 
 struct S_TeamRewardList_BB_19EA_1AEA {
   le_uint32_t num_entries;
@@ -3334,6 +3374,7 @@ struct S_StreamFileIndexEntry_BB_01EB {
 } __packed_ws__(S_StreamFileIndexEntry_BB_01EB, 0x4C);
 
 // 02EB (S->C): Send stream file chunk (BB)
+// The command may be shorter than this structure for the last chunk.
 
 struct S_StreamFileChunk_BB_02EB {
   le_uint32_t chunk_index = 0;
@@ -3425,7 +3466,7 @@ struct S_AdvanceCardTradeState_Ep3_EE_FlagD1 {
 } __packed_ws__(S_AdvanceCardTradeState_Ep3_EE_FlagD1, 4);
 
 // EE D2 (C->S): Trade can proceed
-// No arguments
+// No arguments.
 
 // EE D3 (S->C): Execute trade
 // Same format as EE D0
@@ -3701,12 +3742,53 @@ struct G_UpdateEnemyStateT_6x0A {
   G_EntityIDHeader header;
   le_uint16_t enemy_index = 0; // [0, 0xB50)
   le_uint16_t total_damage = 0;
-  typename std::conditional_t<BE, be_uint32_t, le_uint32_t> game_flags = 0;
-} __attribute__((packed));
+  // The bits in game_flags mean (all addresses in TODOs are for 3OE1):
+  //   00000001 = is poisoned
+  //   00000002 = is paralyzed
+  //   00000004 = is shocked
+  //   00000008 = is slow
+  //   00000010 = is confused
+  //   00000020 = is frozen
+  //   00000040 = cures and prevents all negative status effects
+  //   00000080 = appears to be unused (TODO: look for any usage of this flag)
+  //   00000100 = missed by attack (often set immediately before showing red "MISS" text)
+  //   00000200 = hit by attack (causes flinch for most enemies)
+  //   00000400 = last hit did damage greater than 25% of enemy's max HP (some enemies don't clear this)
+  //   00000800 = is dead (when set for most enemies, plays the death animation and then destroys the enemy)
+  //   00001000 = unknown (TODO: see TObjEnemyV8048ee80_v1C, TObjEnemyV8048ee80_v3B, TObjEneDolmOlm_v3B)
+  //   00002000 = unknown (TODO: see TObjGrass_v1E, 8011EA08, TObjEneIllGill_v1E, TObjEneIllGill_init)
+  //   00004000 = unknown (TODO: has status effect in slot 5; De Rol Le uses this; Vol Opt uses it too at
+  //              TBoss3Volopt_update, TBoss3VoloptCore_update, TBoss3VoloptP01_update, TBoss3VolOptP02_update,
+  //              TObjectV8047c128_v39, TObjectV8047c128_v38; related to paralysis somehow? see
+  //              TObjectV8047c128_v24_update_paralysis_effect)
+  //   00008000 = immune to freeze (TODO: see TBoss3VolOptP02_init_inner; maybe other things use it too)
+  //   00010000 = unknown (TODO: see 801BA1F8)
+  //   00020000 = can't attack, cast techs, or use items (e.g. Vol Opt cage and Ruins falling traps set this)
+  //   00040000 = untargetable (e.g. TObjEneBeast sets this at construction time; it's cleared when it roars)
+  //   00080000 = appears to be unused (TODO: look for any usage of this flag)
+  //   00100000 = for players, is near enemy; for some enemies, is activated (not set if in idle animations, e.g. for
+  //              TObjEneBeast and related classes) (unverified on v2)
+  //   00200000 = is attacking? (TODO: also set when TObjEneMoja is jumping though; also see TObjEnemyV8048ee80_v3C,
+  //              TObjEneMerillLia_v3C, TObjEneSaver_v3A)
+  //   00400000 = unknown (TODO: see TOSensor_vF, 801CC358, 801CD224)
+  //   00800000 = affected by gravity? can be aerial? (wolves don't have this, perhaps their jumps are hardcoded; see
+  //              TObjEnemyV8048ee80_v5B) (unverified on v2)
+  //   01000000 = immune to shock and freeze and paralysis (for Canadine/Mothmant/etc, only set when they're higher
+  //              than player level; TODO: maybe other things too; also used by TObjPlayer, see 801B84B4; also has a
+  //              meaning for weapons, see TItemWeapon_v10) (unverified on v2)
+  //   02000000 = invisible (also suppresses particles, some sounds, and hit/miss text)
+  //   04000000 = temporarily invincible (e.g. Dragon while it roars to advance to phase 2) (unverified on v2)
+  //   08000000 = unknown (TODO; see 80113384, TItemMag_v1B, TItemMag_v1A, 801182B0, TObjPlayer_render; probably
+  //              graphical effects only)
+  //   10000000 = entity is player
+  //   20000000 = entity is enemy
+  //   40000000 = entity is object (some entities have both this and 20000000 set; this appears to make TWindowLockOn
+  //              not show anything but the entity is still attackable, see TWindowLockOn_should_show_for_entity)
+  //   80000000 = entity is item
+  U32T<BE> game_flags = 0;
+} __packed_ws_be__(G_UpdateEnemyStateT_6x0A, 0x0C);
 using G_UpdateEnemyState_GC_6x0A = G_UpdateEnemyStateT_6x0A<true>;
 using G_UpdateEnemyState_DC_PC_XB_BB_6x0A = G_UpdateEnemyStateT_6x0A<false>;
-check_struct_size(G_UpdateEnemyState_GC_6x0A, 0x0C);
-check_struct_size(G_UpdateEnemyState_DC_PC_XB_BB_6x0A, 0x0C);
 
 // 6x0B: Update object state
 
@@ -3717,13 +3799,14 @@ struct G_UpdateObjectState_6x0B {
 } __packed_ws__(G_UpdateObjectState_6x0B, 0x0C);
 
 // 6x0C: Add status effect (poison/slow/etc.) (protected on V3/V4)
+// 6x0D: Remove status effect (protected on V3/V4)
 
-struct G_AddStatusEffect_6x0C {
+struct G_AddOrRemoveStatusEffect_6x0C_6x0D {
   G_ClientIDHeader header;
   // Each status effect has an assigned slot; there are 5 slots and each slot may only hold one effect at a time. (The
-  // last slot, slot 4, is unused.) If a new status effect is added to a slot that already contains one, the existing
-  // status effect is replaced. Non-technique status effects have fixed or indefinite durations; technique-based
-  // effects have durations based on the technique's level.
+  // last slot, slot 4, may be used by certain boss effects; this is unconfirmed.) If a new status effect is added to a
+  // slot that already contains one, the existing status effect is replaced. Non-technique status effects have fixed or
+  // indefinite durations; technique-based effects have durations based on the technique's level.
   // Values for effect_type:
   //   02 = Freeze (slot 1; 5 seconds)
   //   03 = Shock (slot 1; 10 seconds)
@@ -3738,16 +3821,8 @@ struct G_AddStatusEffect_6x0C {
   //   12 = Confuse (slot 1; 10 seconds)
   //   Anything else = command is ignored
   le_uint32_t effect_type = 0;
-  le_float amount = 0; // Only used for Shifta/Deband/Jellen/Zalure
-} __packed_ws__(G_AddStatusEffect_6x0C, 0x0C);
-
-// 6x0D: Clear status effect slot (protected on V3/V4)
-
-struct G_RemoveStatusEffect_6x0D {
-  G_ClientIDHeader header;
-  le_uint32_t slot = 0; // See 6x0C description for slot values
-  le_uint32_t unused = 0;
-} __packed_ws__(G_RemoveStatusEffect_6x0D, 0x0C);
+  le_float amount = 0; // Only used in 6x0C for Shifta/Deband/Jellen/Zalure; unused in 6x0D
+} __packed_ws__(G_AddOrRemoveStatusEffect_6x0C_6x0D, 0x0C);
 
 // 6x0E: Clear all negative status effects (protected on V3/V4)
 // It seems that the client never sends this command.
@@ -3779,11 +3854,9 @@ struct G_DragonBossActionsT_6x12 {
   le_uint32_t target_client_id = 0xFFFF; // 0xFFFF (not 0xFFFFFFFF) means no target
   F32T<BE> x = 0.0f;
   F32T<BE> z = 0.0f;
-} __attribute__((packed));
+} __packed_ws_be__(G_DragonBossActionsT_6x12, 0x14);
 using G_DragonBossActions_DC_PC_XB_BB_6x12 = G_DragonBossActionsT_6x12<false>;
 using G_DragonBossActions_GC_6x12 = G_DragonBossActionsT_6x12<true>;
-check_struct_size(G_DragonBossActions_DC_PC_XB_BB_6x12, 0x14);
-check_struct_size(G_DragonBossActions_GC_6x12, 0x14);
 
 // 6x13: De Rol Le boss actions (not valid on Episode 3)
 
@@ -3864,7 +3937,7 @@ struct G_DisablePKModeForPlayer_6x1C {
 // 6x1D: Request partial player data (pre-v1 only)
 // The subcommand number 6x1D is not used in any final version of PSO; this number is assigned based on what the
 // command number would be if it were. On DC NTE, this is subcommand 6x19; on 11/2000, it's 6x1B. This command does not
-// appear to ever be sent by the client; however, it will respond with 6x1E if it receives this command.
+// appear to ever be sent by the client; however, it will respond with a 6x1E command if it receives this command.
 
 struct G_RequestPartialPlayerData_DCProtos_6x1D {
   G_UnusedHeader header;
@@ -3963,7 +4036,7 @@ struct G_FeedMag_6x28 {
   le_uint32_t fed_item_id = 0;
 } __packed_ws__(G_FeedMag_6x28, 0x0C);
 
-// 6x29: Delete inventory item (via bank deposit / sale / feeding MAG) (protected on GC NTE/V3 but not on V4)
+// 6x29: Delete inventory item (via bank deposit / sale / feeding MAG) (protected on GC NTE/V3 but not on BB)
 // This subcommand is also used for reducing the size of stacks - if amount is less than the stack count, the item is
 // not deleted and its ID remains valid.
 
@@ -4036,8 +4109,8 @@ struct G_ChangePlayerHP_6x2F {
 } __packed_ws__(G_ChangePlayerHP_6x2F, 0x0C);
 
 // 6x30: Change player level (protected on GC NTE/V3 but not V4)
-// On DC NTE, the updated stats aren't sent, and the client may only gain a single level at once. On other versions,
-// this is not the case.
+// On DC NTE and 11/2000, the updated stats aren't sent, and the client may only gain a single level at once. On other
+// versions, this is not the case.
 
 struct G_ChangePlayerLevel_DCNTE_6x30 {
   G_ClientIDHeader header;
@@ -4103,7 +4176,7 @@ struct G_Unknown_6x36 {
 
 struct G_PhotonBlast_6x37 {
   G_ClientIDHeader header;
-  le_uint16_t unknown_a1 = 0;
+  le_uint16_t amount = 0; // Amount of PB energy to expend (ignored by client upon receipt)
   le_uint16_t unused = 0;
 } __packed_ws__(G_PhotonBlast_6x37, 8);
 
@@ -4190,7 +4263,9 @@ struct G_SetPosition_6x3F {
 struct G_WalkToPosition_6x40 {
   G_ClientIDHeader header;
   VectorXZF pos;
-  le_uint32_t action = 0;
+  // In the flags field, bit 00000008 is set if game_flag 00100000 is set (same as is_near_enemy in 6x3E and 6x3F). The
+  // meanings of the other bits are unknown.
+  le_uint32_t flags = 0;
 } __packed_ws__(G_WalkToPosition_6x40, 0x10);
 
 // 6x41: Move to position (v1)
@@ -4214,7 +4289,9 @@ struct G_Attack_6x43_6x44_6x45 {
   le_uint16_t unknown_a2 = 0;
 } __packed_ws__(G_Attack_6x43_6x44_6x45, 8);
 
-// 6x46: Attack finished (sent after each of 43, 44, and 45) (protected on GC NTE/V3/V4)
+// 6x46: Set attack strike targets (sent after each of 43, 44, and 45) (protected on GC NTE/V3/V4)
+// This command sets the targets of each strike of an attack (e.g. each pair of mechgun bullets, or each swing of a
+// pair of daggers). For multi-strike attacks, this is sent multiple times.
 // The number of targets is not bounds-checked during byteswapping on GC clients. The client only expects up to 10
 // entries here, so if the number of targets is too large, the client will byteswap the function's return address on
 // the stack, and it will crash.
@@ -4268,8 +4345,8 @@ struct G_ShieldAttack_6x4A {
   G_ClientIDHeader header;
 } __packed_ws__(G_ShieldAttack_6x4A, 4);
 
-// 6x4B: Hit by enemy (protected on GC NTE/V3/V4)
-// 6x4C: Hit by enemy (protected on GC NTE/V3/V4)
+// 6x4B: Minor hit by enemy (<= 25% of max HP; protected on GC NTE/V3/V4)
+// 6x4C: Major hit by enemy (> 25% of max HP; protected on GC NTE/V3/V4)
 
 struct G_HitByEnemy_6x4B_6x4C {
   G_ClientIDHeader header;
@@ -4371,7 +4448,7 @@ struct G_Unknown_6x57 {
 struct G_LobbyAnimation_6x58 {
   G_ClientIDHeader header;
   le_uint16_t animation_number = 0;
-  le_uint16_t unused = 0;
+  le_uint16_t flags = 0; // 0 = normal, 1 = use opposite gender's animation
 } __packed_ws__(G_LobbyAnimation_6x58, 8);
 
 // 6x59: Pick up item
@@ -4666,49 +4743,47 @@ struct G_6x70_Sub_Telepipe {
 struct G_6x70_Base_DCNTE {
   /* 0000 */ le_uint16_t client_id = 0;
   /* 0002 */ le_uint16_t room_id = 0;
-  /* 0004 */ le_uint32_t flags1 = 0;
+  /* 0004 */ le_uint32_t game_flags = 0;
   /* 0008 */ VectorXYZF pos;
   /* 0014 */ VectorXYZI angle;
-  /* 0020 */ le_uint16_t unknown_a3a = 0;
+  /* 0020 */ le_uint16_t phase = 0;
   /* 0022 */ le_uint16_t current_hp = 0;
 } __packed_ws__(G_6x70_Base_DCNTE, 0x24);
 
 struct G_SyncPlayerDispAndInventory_DCNTE_6x70 {
-  // Offsets in this struct are relative to the overall command header
-  /* 0004 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x60, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_DCNTE_6x70)};
-  /* 000C */ G_6x70_Base_DCNTE base;
+  /* 0000 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x60, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_DCNTE_6x70)};
+  /* 0008 */ G_6x70_Base_DCNTE base;
   // The following two fields appear to contain uninitialized data
-  /* 0030 */ le_uint32_t unknown_a5 = 0;
-  /* 0034 */ le_uint32_t unknown_a6 = 0;
-  /* 0038 */ G_6x70_Sub_Telepipe telepipe;
-  /* 0054 */ le_uint32_t death_flags = 0;
-  /* 0058 */ PlayerHoldState_DCProtos hold_state;
-  /* 0068 */ le_uint32_t area = 0;
-  /* 006C */ le_uint32_t game_flags = 0;
-  /* 0070 */ PlayerVisualConfig visual;
-  /* 00C0 */ PlayerStats stats;
-  /* 00E4 */ le_uint32_t num_items = 0;
-  /* 00E8 */ parray<PlayerInventoryItem, 0x1E> items;
-  /* 0430 */
+  /* 002C */ le_uint32_t unknown_a5 = 0;
+  /* 0030 */ le_uint32_t unknown_a6 = 0;
+  /* 0034 */ G_6x70_Sub_Telepipe telepipe;
+  /* 0050 */ le_uint32_t death_flags = 0;
+  /* 0054 */ PlayerHoldState_DCProtos hold_state;
+  /* 0064 */ le_uint32_t area = 0;
+  /* 0068 */ le_uint32_t player_flags = 0;
+  /* 006C */ PlayerVisualConfigV123 visual;
+  /* 00BC */ PlayerStats stats;
+  /* 00E0 */ le_uint32_t num_items = 0;
+  /* 00E4 */ parray<PlayerInventoryItem, 0x1E> items;
+  /* 042C */
 } __packed_ws__(G_SyncPlayerDispAndInventory_DCNTE_6x70, 0x42C);
 
 struct G_SyncPlayerDispAndInventory_DC112000_6x70 {
-  // Offsets in this struct are relative to the overall command header
-  /* 0004 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x67, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_DC112000_6x70)};
-  /* 000C */ G_6x70_Base_DCNTE base;
-  /* 0030 */ le_uint16_t bonus_hp_from_materials = 0;
-  /* 0032 */ le_uint16_t bonus_tp_from_materials = 0;
-  /* 0034 */ parray<uint8_t, 0x10> unknown_a5;
-  /* 0044 */ G_6x70_Sub_Telepipe telepipe;
-  /* 0060 */ le_uint32_t death_flags = 0;
-  /* 0064 */ PlayerHoldState_DCProtos hold_state;
-  /* 0074 */ le_uint32_t area = 0;
-  /* 0078 */ le_uint32_t game_flags = 0;
-  /* 007C */ PlayerVisualConfig visual;
-  /* 00CC */ PlayerStats stats;
-  /* 00F0 */ le_uint32_t num_items = 0;
-  /* 00F4 */ parray<PlayerInventoryItem, 0x1E> items;
-  /* 043C */
+  /* 0000 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x67, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_DC112000_6x70)};
+  /* 0008 */ G_6x70_Base_DCNTE base;
+  /* 002C */ le_uint16_t bonus_hp_from_materials = 0;
+  /* 002E */ le_uint16_t bonus_tp_from_materials = 0;
+  /* 0030 */ parray<uint8_t, 0x10> unknown_a5;
+  /* 0040 */ G_6x70_Sub_Telepipe telepipe;
+  /* 005C */ le_uint32_t death_flags = 0;
+  /* 0060 */ PlayerHoldState_DCProtos hold_state;
+  /* 0070 */ le_uint32_t area = 0;
+  /* 0074 */ le_uint32_t player_flags = 0;
+  /* 0078 */ PlayerVisualConfigV123 visual;
+  /* 00C8 */ PlayerStats stats;
+  /* 00EC */ le_uint32_t num_items = 0;
+  /* 00F0 */ parray<PlayerInventoryItem, 0x1E> items;
+  /* 0438 */
 } __packed_ws__(G_SyncPlayerDispAndInventory_DC112000_6x70, 0x438);
 
 struct G_6x70_Base_V1 {
@@ -4719,71 +4794,73 @@ struct G_6x70_Base_V1 {
   /* 0034 */ StatusEffectState temporary_status_effect;
   /* 0040 */ StatusEffectState attack_status_effect;
   /* 004C */ StatusEffectState defense_status_effect;
-  /* 0058 */ StatusEffectState unused_status_effect;
+  /* 0058 */ StatusEffectState unknown_a1_status_effect;
   /* 0064 */ le_uint32_t language32 = 0;
   /* 0068 */ le_uint32_t player_tag = 0;
   /* 006C */ le_uint32_t guild_card_number = 0;
   /* 0070 */ le_uint32_t unknown_a6 = 0; // Probably battle-related (assigned together with battle_team_number)
   /* 0074 */ le_uint32_t battle_team_number = 0;
   /* 0078 */ G_6x70_Sub_Telepipe telepipe;
-  /* 0094 */ le_uint32_t death_flags = 0; // Only a few bits are used. 4 = player is dead
+  // Only a few bits appear to be used in death_flags. Known values:
+  //   00000001 = should drop weapon/item on death
+  //   00000002 = does not have any automatic revival item (Scape Doll or Ragol Ring)
+  //   00000004 = was revived by automatic revival item
+  /* 0094 */ le_uint32_t death_flags = 0;
   /* 0098 */ PlayerHoldState hold_state;
   /* 00AC */ le_uint32_t area = 0;
-  /* 00B0 */ le_uint32_t game_flags = 0;
+  /* 00B0 */ le_uint32_t player_flags = 0;
   /* 00B4 */ parray<uint8_t, 0x14> technique_levels_v1 = 0xFF; // Last byte is uninitialized
-  /* 00C8 */ PlayerVisualConfig visual;
-  /* 0118 */
-} __packed_ws__(G_6x70_Base_V1, 0x118);
+  /* 00C8 */
+} __packed_ws__(G_6x70_Base_V1, 0xC8);
 
 struct G_SyncPlayerDispAndInventory_DC_PC_6x70 {
-  // Offsets in this struct are relative to the overall command header
-  /* 0004 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_DC_PC_6x70)};
-  /* 000C */ G_6x70_Base_V1 base;
-  /* 0124 */ PlayerStats stats;
-  /* 0148 */ le_uint32_t num_items = 0;
-  /* 014C */ parray<PlayerInventoryItem, 0x1E> items;
-  /* 0494 */
+  /* 0000 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_DC_PC_6x70)};
+  /* 0008 */ G_6x70_Base_V1 base;
+  /* 00D0 */ PlayerVisualConfigV123 visual;
+  /* 0120 */ PlayerStats stats;
+  /* 0144 */ le_uint32_t num_items = 0;
+  /* 0148 */ parray<PlayerInventoryItem, 0x1E> items;
+  /* 0490 */
 } __packed_ws__(G_SyncPlayerDispAndInventory_DC_PC_6x70, 0x490);
 
-// GC NTE also uses this format.
+// GC NTE also uses this format
 struct G_SyncPlayerDispAndInventory_GC_6x70 {
-  // Offsets in this struct are relative to the overall command header
-  /* 0004 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_GC_6x70)};
-  /* 000C */ G_6x70_Base_V1 base;
-  /* 0124 */ PlayerStats stats;
-  /* 0148 */ le_uint32_t num_items = 0;
-  /* 014C */ parray<PlayerInventoryItem, 0x1E> items;
-  /* 0494 */ le_uint32_t floor = 0;
-  /* 0498 */
+  /* 0000 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_GC_6x70)};
+  /* 0008 */ G_6x70_Base_V1 base;
+  /* 00D0 */ PlayerVisualConfigV123 visual;
+  /* 0120 */ PlayerStats stats;
+  /* 0144 */ le_uint32_t num_items = 0;
+  /* 0148 */ parray<PlayerInventoryItem, 0x1E> items;
+  /* 0490 */ le_uint32_t floor = 0;
+  /* 0494 */
 } __packed_ws__(G_SyncPlayerDispAndInventory_GC_6x70, 0x494);
 
 struct G_SyncPlayerDispAndInventory_XB_6x70 {
-  // Offsets in this struct are relative to the overall command header
-  /* 0004 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_XB_6x70)};
-  /* 000C */ G_6x70_Base_V1 base;
-  /* 0124 */ PlayerStats stats;
-  /* 0148 */ le_uint32_t num_items = 0;
-  /* 014C */ parray<PlayerInventoryItem, 0x1E> items;
-  /* 0494 */ le_uint32_t floor = 0;
-  /* 0498 */ le_uint32_t xb_user_id_high = 0;
-  /* 049C */ le_uint32_t xb_user_id_low = 0;
-  /* 04A0 */ le_uint32_t unknown_a16 = 0;
-  /* 04A4 */
+  /* 0000 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_XB_6x70)};
+  /* 0008 */ G_6x70_Base_V1 base;
+  /* 00D0 */ PlayerVisualConfigV123 visual;
+  /* 0120 */ PlayerStats stats;
+  /* 0144 */ le_uint32_t num_items = 0;
+  /* 0148 */ parray<PlayerInventoryItem, 0x1E> items;
+  /* 0490 */ le_uint32_t floor = 0;
+  /* 0494 */ le_uint32_t xb_user_id_high = 0;
+  /* 0498 */ le_uint32_t xb_user_id_low = 0;
+  /* 049C */ le_uint32_t unknown_a16 = 0;
+  /* 04A0 */
 } __packed_ws__(G_SyncPlayerDispAndInventory_XB_6x70, 0x4A0);
 
 struct G_SyncPlayerDispAndInventory_BB_6x70 {
-  // Offsets in this struct are relative to the overall command header
-  /* 0008 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_BB_6x70)};
-  /* 0010 */ G_6x70_Base_V1 base;
-  /* 0128 */ pstring<TextEncoding::UTF16_ALWAYS_MARKED, 0x10> name;
-  /* 0148 */ PlayerStats stats;
-  /* 016C */ le_uint32_t num_items = 0;
-  /* 0170 */ parray<PlayerInventoryItem, 0x1E> items;
-  /* 04B8 */ le_uint32_t floor = 0;
-  /* 04BC */ le_uint32_t xb_user_id_high = 0;
-  /* 04C0 */ le_uint32_t xb_user_id_low = 0;
-  /* 04C4 */ le_uint32_t unknown_a16 = 0;
-  /* 04C8 */
+  /* 0000 */ G_ExtendedHeaderT<G_ClientIDHeader> header = {{0x70, 0x00, 0x0000}, sizeof(G_SyncPlayerDispAndInventory_BB_6x70)};
+  /* 0008 */ G_6x70_Base_V1 base;
+  /* 00D0 */ PlayerVisualConfigV4 visual;
+  /* 0140 */ PlayerStats stats;
+  /* 0164 */ le_uint32_t num_items = 0;
+  /* 0168 */ parray<PlayerInventoryItem, 0x1E> items;
+  /* 04B0 */ le_uint32_t floor = 0;
+  /* 04B4 */ le_uint32_t xb_user_id_high = 0;
+  /* 04B8 */ le_uint32_t xb_user_id_low = 0;
+  /* 04BC */ le_uint32_t unknown_a16 = 0;
+  /* 04C0 */
 } __packed_ws__(G_SyncPlayerDispAndInventory_BB_6x70, 0x4C0);
 
 // 6x71: Unblock game join (used while loading into game)
@@ -4816,11 +4893,9 @@ struct G_WordSelectT_6x74 {
   uint8_t size = 0;
   U16T<BE> client_id = 0;
   WordSelectMessage message;
-} __attribute__((packed));
+} __packed_ws_be__(G_WordSelectT_6x74, 0x20);
 using G_WordSelect_6x74 = G_WordSelectT_6x74<false>;
 using G_WordSelectBE_6x74 = G_WordSelectT_6x74<true>;
-check_struct_size(G_WordSelect_6x74, 0x20);
-check_struct_size(G_WordSelectBE_6x74, 0x20);
 
 // 6x75: Update quest flag
 // This command does nothing on Episode 3.
@@ -4948,11 +5023,9 @@ struct G_BattleScoresT_6x7F {
   } __packed_ws__(Entry, 8);
   G_UnusedHeader header;
   parray<Entry, 4> entries;
-} __attribute__((packed));
+} __packed_ws_be__(G_BattleScoresT_6x7F, 0x24);
 using G_BattleScores_6x7F = G_BattleScoresT_6x7F<false>;
 using G_BattleScoresBE_6x7F = G_BattleScoresT_6x7F<true>;
-check_struct_size(G_BattleScores_6x7F, 0x24);
-check_struct_size(G_BattleScoresBE_6x7F, 0x24);
 
 // 6x80: Trigger trap (not valid on Episode 3)
 
@@ -4985,6 +5058,8 @@ struct G_EnableDropWeaponOnDeath_6x82 {
 struct G_PlaceTrap_6x83 {
   G_ClientIDHeader header;
   le_uint16_t trap_type = 0;
+  // trap_index is actually the number of traps remaining for this client after setting this one (so it counts backward
+  // from their total trap count)
   le_uint16_t trap_index = 0;
 } __packed_ws__(G_PlaceTrap_6x83, 8);
 
@@ -5147,10 +5222,10 @@ struct G_SetChallengeTime_6x95 {
 
 struct G_SelectChallengeModeFailureOption_6x97 {
   G_UnusedHeader header;
-  le_uint32_t unused1 = 0;
+  le_uint32_t client_id = 0;
   le_uint32_t is_retry = 0;
+  le_uint32_t unused1 = 0;
   le_uint32_t unused2 = 0;
-  le_uint32_t unused3 = 0;
 } __packed_ws__(G_SelectChallengeModeFailureOption_6x97, 0x14);
 
 // 6x98: Unknown
@@ -5178,18 +5253,23 @@ struct G_UpdateEntityStat_6x9A {
 // Used in battle mode if the rules specify that techniques should level up upon character death.
 
 struct G_LevelUpAllTechniques_6x9B {
-  G_UnusedHeader header;
+  G_ClientIDHeader header;
   uint8_t num_levels = 0;
   parray<uint8_t, 3> unused;
 } __packed_ws__(G_LevelUpAllTechniques_6x9B, 8);
 
-// 6x9C: Set enemy low game flags (not valid on Episode 3)
-// This command only has an effect in Ultimate mode; it sets the low 6 bits of game_flags (those that match 0x3F).
+// 6x9C: Set enemy status effect flags (not valid on Episode 3)
+// This command only has an effect in Ultimate mode; it sets the low 6 bits of game_flags (those that match 0x3F). This
+// essentially separates status effects from the 6x0A command. It's not clear why Sega did this only in Ultimate mode.
 
 struct G_SetEnemyLowGameFlagsUltimate_6x9C {
   G_EntityIDHeader header;
-  // A virtual function is called on the enemy if low_game_flags is equal to any of 0x02, 0x04, 0x10, or 0x20.
-  le_uint32_t low_game_flags = 0;
+  // This field is expected to have one of these values (it should not actually be treated as a bit field):
+  //   0x00000002 = add paralysis status
+  //   0x00000004 = add shock status
+  //   0x00000010 = add confuse status
+  //   0x00000020 = add freeze status
+  le_uint32_t status_effect_flags = 0;
 } __packed_ws__(G_SetEnemyLowGameFlagsUltimate_6x9C, 8);
 
 // 6x9D: Set dead flag (Challenge mode; not valid on Episode 3)
@@ -5222,8 +5302,8 @@ struct G_GalGryphonBossActions_6x9F {
 struct G_GalGryphonBossActions_6xA0 {
   G_EntityIDHeader header;
   VectorXYZF pos;
-  le_uint32_t unknown_a1 = 0;
-  le_uint16_t unknown_a2 = 0;
+  le_uint32_t angle_y = 0;
+  le_uint16_t phase = 0;
   le_uint16_t unknown_a3 = 0;
   parray<le_uint32_t, 4> unknown_a4;
 } __packed_ws__(G_GalGryphonBossActions_6xA0, 0x28);
@@ -5297,24 +5377,22 @@ struct G_ModifyTradeProposal_6xA6 {
 template <bool BE>
 struct G_GolDragonBossActionsT_6xA8 {
   G_EntityIDHeader header;
-  le_uint16_t unknown_a2 = 0;
+  le_uint16_t phase = 0;
   le_uint16_t unknown_a3 = 0;
-  le_uint32_t unknown_a4 = 0;
+  le_uint32_t target_client_id = 0;
   F32T<BE> x = 0.0f;
   F32T<BE> z = 0.0f;
   uint8_t unknown_a5 = 0;
   parray<uint8_t, 3> unused;
-} __attribute__((packed));
+} __packed_ws_be__(G_GolDragonBossActionsT_6xA8, 0x18);
 using G_GolDragonBossActions_XB_BB_6xA8 = G_GolDragonBossActionsT_6xA8<false>;
 using G_GolDragonBossActions_GC_6xA8 = G_GolDragonBossActionsT_6xA8<true>;
-check_struct_size(G_GolDragonBossActions_XB_BB_6xA8, 0x18);
-check_struct_size(G_GolDragonBossActions_GC_6xA8, 0x18);
 
 // 6xA9: Barba Ray boss actions (not valid on pre-V3 or Episode 3)
 
 struct G_BarbaRayBossActions_6xA9 {
   G_EntityIDHeader header;
-  le_uint16_t unknown_a1 = 0;
+  le_uint16_t what = 0;
   le_uint16_t unknown_a2 = 0;
 } __packed_ws__(G_BarbaRayBossActions_6xA9, 0x08);
 
@@ -5322,9 +5400,9 @@ struct G_BarbaRayBossActions_6xA9 {
 
 struct G_BarbaRayBossActions_6xAA {
   G_EntityIDHeader header;
-  le_uint16_t unknown_a1 = 0;
+  le_uint16_t what = 0;
   le_uint16_t unknown_a2 = 0;
-  le_uint32_t unknown_a3 = 0;
+  le_uint32_t target_client_id = 0;
 } __packed_ws__(G_BarbaRayBossActions_6xAA, 0x0C);
 
 // 6xAB: Create lobby chair (not valid on pre-V3) (protected on V3/V4)
@@ -5380,25 +5458,20 @@ struct G_SetAnimationState_6xAE {
   G_ClientIDHeader header;
   le_uint16_t animation_number = 0;
   le_uint16_t unused = 0;
-  // This field contains the flags field on the sender's TObjPlayer object. If the bit 04000000 is set in this field,
-  // then (flags & 1C000000) is or'ed into the TObjPlayer's flags field. All other bits are ignored.
-  le_uint32_t flags = 0;
+  // This field contains the player_flags field on the sender's TObjPlayer object. If the bit 04000000 is set in this
+  // field, then (flags & 1C000000) is or'ed into the TObjPlayer's player_flags field on the receiver's end; all other
+  // bits are ignored. (For the meanings of these bits, see Parsed6x70Data::convert_player_flags.)
+  le_uint32_t player_flags = 0;
   le_float animation_timer = 0;
 } __packed_ws__(G_SetAnimationState_6xAE, 0x10);
 
 // 6xAF: Turn lobby chair (not valid on pre-V3 or GC Trial Edition) (protected on V3/V4)
-
-struct G_TurnLobbyChair_6xAF {
-  G_ClientIDHeader header;
-  le_uint32_t angle = 0; // In range [0x0000, 0xFFFF]
-} __packed_ws__(G_TurnLobbyChair_6xAF, 8);
-
 // 6xB0: Move lobby chair (not valid on pre-V3 or GC Trial Edition) (protected on V3/V4)
 
-struct G_MoveLobbyChair_6xB0 {
+struct G_TurnOrMoveLobbyChair_6xAF_6xB0 {
   G_ClientIDHeader header;
-  le_uint32_t unknown_a1 = 0;
-} __packed_ws__(G_MoveLobbyChair_6xB0, 8);
+  le_uint32_t angle = 0; // In range [0x0000, 0xFFFF]
+} __packed_ws__(G_TurnOrMoveLobbyChair_6xAF_6xB0, 8);
 
 // 6xB1: Unknown (not valid on pre-V3 or GC Trial Edition)
 // This subcommand is completely ignored.
@@ -5664,7 +5737,7 @@ struct G_BankAction_BB_6xBD {
   G_UnusedHeader header;
   le_uint32_t item_id = 0;
   le_uint32_t meseta_amount = 0;
-  uint8_t action = 0; // 0 = deposit, 1 = take, 3 = done (close bank window)
+  uint8_t action = 0; // 0 = deposit, 1 = take, 2 = unknown (compact contents?), 3 = commit (close bank window)
   uint8_t item_amount = 0;
   le_uint16_t item_index = 0; // 0xFFFF = meseta
 } __packed_ws__(G_BankAction_BB_6xBD, 0x10);
@@ -5696,7 +5769,7 @@ struct G_ChangeLobbyMusic_Ep3_6xBF {
 // 6xBF: Give EXP (BB) (server->client only)
 // newserv implements an extension that causes this command to show the purple EXP numbers which are normally generated
 // by the client instead. This requires the server to also send the enemy ID that generated the EXP, hence the
-// extension struct here. See ServerEXPDisplay.59NL.patch.s for details.
+// extension struct here. See ServerEXPDisplay.s for details.
 
 struct G_GiveExperience_BB_6xBF {
   G_ClientIDHeader header;
@@ -5951,16 +6024,17 @@ struct G_UpgradeWeaponAttribute_BB_6xDA {
   le_uint16_t failure_label = 0; // labelH
 } __packed_ws__(G_UpgradeWeaponAttribute_BB_6xDA, 0x2C);
 
-// 6xDB: Exchange item in quest (BB)
+// 6xDB: Extended delete inventory item (BB)
 
-struct G_ExchangeItemInQuest_BB_6xDB {
+struct G_ExtendedDeleteInventoryItem_BB_6xDB {
   G_ClientIDHeader header;
-  // If this is 0, the command is identical to 6x29. If this is 1, a function similar to find_item_by_id is called
-  // instead of find_item_by_id, but I don't yet know what exactly the logic differences are (TODO).
-  le_uint32_t unknown_a1 = 0;
+  // If exclude_wrapped is 0, the command is identical to 6x29; if this is 1, the command won't delete any item which
+  // is wrapped. This seems like an odd feature; shouldn't we expect that the server and client have the same item
+  // state, so the server would already know if the item was wrapped or not before sending this?
+  le_uint32_t exclude_wrapped = 0;
   le_uint32_t item_id = 0;
   le_uint32_t amount = 0;
-} __packed_ws__(G_ExchangeItemInQuest_BB_6xDB, 0x10);
+} __packed_ws__(G_ExtendedDeleteInventoryItem_BB_6xDB, 0x10);
 
 // 6xDC: Saint-Milion/Shambertin/Kondrieu boss actions (BB)
 
@@ -5973,7 +6047,7 @@ struct G_Episode4BossActions_BB_6xDC {
 // 6xDD: Set EXP multiplier (BB)
 // header.param specifies the EXP multiplier. It is 1-based, so the value 2 means all EXP is doubled, for example. This
 // only affects what the client shows when an enemy is killed; actual EXP gains are controlled by the server in
-// response to the 6xC8 command.
+// response to the 6xC8 command. The ServerEXPDisplay patch obviates this command.
 
 struct G_SetEXPMultiplier_BB_6xDD {
   G_ParameterHeader header;
@@ -6021,8 +6095,8 @@ struct G_RequestItemDropFromQuest_BB_6xE0 {
 
 struct G_ExchangePhotonTickets_BB_6xE1 {
   G_ClientIDHeader header;
-  uint8_t unknown_a1 = 0; // valueA
-  uint8_t unknown_a2 = 0; // valueB
+  uint8_t result_code_reg = 0; // valueA
+  uint8_t result_index_reg = 0; // valueB
   uint8_t result_index = 0; // valueC
   uint8_t unused = 0;
   le_uint16_t success_label = 0; // valueD
@@ -6049,7 +6123,7 @@ struct G_SetMesetaSlotPrizeResult_BB_6xE3 {
   ItemData item;
 } __packed_ws__(G_SetMesetaSlotPrizeResult_BB_6xE3, 0x18);
 
-// 6xE4: Invalid subcommand (but used as an extension; see end of this file)
+// 6xE4: Invalid subcommand (but used as a newserv extension; see end of this file)
 // 6xE5: Invalid subcommand
 // 6xE6: Invalid subcommand
 // 6xE7: Invalid subcommand
@@ -6315,7 +6389,7 @@ struct G_SetPlayerDeck_Ep3_CAx14 {
 
 struct G_HardResetServerState_Ep3_CAx15 {
   G_CardServerDataCommandHeader header = {0xB3, sizeof(G_HardResetServerState_Ep3_CAx15) / 4, 0, 0x15, 0, 0, 0, 0, 0};
-  // No arguments
+  // No arguments.
 } __packed_ws__(G_HardResetServerState_Ep3_CAx15, 0x10);
 
 // 6xB5x17: Unknown
@@ -6323,7 +6397,7 @@ struct G_HardResetServerState_Ep3_CAx15 {
 
 struct G_Unknown_Ep3_6xB5x17 {
   G_CardBattleCommandHeader header = {0xB5, sizeof(G_Unknown_Ep3_6xB5x17) / 4, 0, 0x17, 0, 0, 0};
-  // No arguments
+  // No arguments.
 } __packed_ws__(G_Unknown_Ep3_6xB5x17, 8);
 
 // 6xB5x1A: Force disconnect
@@ -6333,7 +6407,7 @@ struct G_Unknown_Ep3_6xB5x17 {
 
 struct G_ForceDisconnect_Ep3_6xB5x1A {
   G_CardBattleCommandHeader header = {0xB5, sizeof(G_ForceDisconnect_Ep3_6xB5x1A) / 4, 0, 0x1A, 0, 0, 0};
-  // No arguments
+  // No arguments.
 } __packed_ws__(G_ForceDisconnect_Ep3_6xB5x1A, 8);
 
 // 6xB3x1B / CAx1B: Set player name
@@ -6406,7 +6480,7 @@ struct G_EndBattle_Ep3_CAx21 {
 
 struct G_Unknown_Ep3_6xB4x22 {
   G_CardBattleCommandHeader header = {0xB4, sizeof(G_Unknown_Ep3_6xB4x22) / 4, 0, 0x22, 0, 0, 0};
-  // No arguments
+  // No arguments.
 } __packed_ws__(G_Unknown_Ep3_6xB4x22, 8);
 
 // 6xB4x23: Unknown
@@ -6549,7 +6623,7 @@ struct G_SetDeckInBattleSetupMenu_Ep3_6xB5x2F {
 
 struct G_Unused_Ep3_6xB5x30 {
   G_CardBattleCommandHeader header = {0xB5, sizeof(G_Unused_Ep3_6xB5x30) / 4, 0, 0x30, 0, 0, 0};
-  // No arguments
+  // No arguments.
 } __packed_ws__(G_Unused_Ep3_6xB5x30, 8);
 
 // 6xB5x31: Confirm deck selection
@@ -7054,7 +7128,7 @@ struct G_RejectBattleStartRequest_Ep3_6xB4x53 {
 // 30 (C->S): Extended player info
 // Requested with the GetExtendedPlayerInfo patch. Format depends on version:
 //   DC v2: PSODCV2CharacterFile
-//   GC v3: PSOGCCharacterFile::Character
+//   GC v3: PSOGCCharacterFile::Character (including big-endian fields, unlike 61)
 //   XB v3: PSOXBCharacterFile::Character
 
 // 6xE4: Increment enemy damage

@@ -10,8 +10,6 @@
 #include "ServerState.hh"
 #include "Text.hh"
 
-using namespace std;
-
 bool Lobby::FloorItem::visible_to_client(uint8_t client_id) const {
   return this->flags & (1 << client_id);
 }
@@ -24,17 +22,17 @@ bool Lobby::FloorItemManager::exists(uint32_t item_id) const {
   return this->items.count(item_id);
 }
 
-shared_ptr<Lobby::FloorItem> Lobby::FloorItemManager::find(uint32_t item_id) const {
+std::shared_ptr<Lobby::FloorItem> Lobby::FloorItemManager::find(uint32_t item_id) const {
   return this->items.at(item_id);
 }
 
 void Lobby::FloorItemManager::add(
     const ItemData& item,
     const VectorXZF& pos,
-    shared_ptr<const MapState::ObjectState> from_obj,
-    shared_ptr<const MapState::EnemyState> from_ene,
+    std::shared_ptr<const MapState::ObjectState> from_obj,
+    std::shared_ptr<const MapState::EnemyState> from_ene,
     uint16_t flags) {
-  auto fi = make_shared<FloorItem>();
+  auto fi = std::make_shared<FloorItem>();
   fi->data = item;
   fi->pos = pos;
   fi->drop_number = this->next_drop_number++;
@@ -44,14 +42,14 @@ void Lobby::FloorItemManager::add(
   this->add(fi);
 }
 
-void Lobby::FloorItemManager::add(shared_ptr<Lobby::FloorItem> fi) {
+void Lobby::FloorItemManager::add(std::shared_ptr<Lobby::FloorItem> fi) {
   if (fi->flags == 0) {
-    throw logic_error("floor item is not visible to any player");
+    throw std::logic_error("floor item is not visible to any player");
   }
 
   auto emplace_ret = this->items.emplace(fi->data.id, fi);
   if (!emplace_ret.second) {
-    throw runtime_error("floor item already exists with the same ID");
+    throw std::runtime_error("floor item already exists with the same ID");
   }
   for (size_t z = 0; z < 12; z++) {
     if (fi->visible_to_client(z)) {
@@ -65,15 +63,15 @@ void Lobby::FloorItemManager::add(shared_ptr<Lobby::FloorItem> fi) {
 std::shared_ptr<Lobby::FloorItem> Lobby::FloorItemManager::remove(uint32_t item_id, uint8_t client_id) {
   auto item_it = this->items.find(item_id);
   if (item_it == this->items.end()) {
-    throw out_of_range("item not present");
+    throw std::out_of_range("item not present");
   }
   auto fi = item_it->second;
   if ((client_id != 0xFF) && !fi->visible_to_client(client_id)) {
-    throw runtime_error("client does not have access to item");
+    throw std::runtime_error("client does not have access to item");
   }
   for (size_t z = 0; z < 12; z++) {
     if (fi->visible_to_client(z) && !this->queue_for_client[z].erase(fi->drop_number)) {
-      throw logic_error("item queue for client is inconsistent");
+      throw std::logic_error("item queue for client is inconsistent");
     }
   }
   this->items.erase(item_it);
@@ -83,7 +81,7 @@ std::shared_ptr<Lobby::FloorItem> Lobby::FloorItemManager::remove(uint32_t item_
 }
 
 std::unordered_set<std::shared_ptr<Lobby::FloorItem>> Lobby::FloorItemManager::evict() {
-  unordered_set<shared_ptr<FloorItem>> ret;
+  std::unordered_set<std::shared_ptr<FloorItem>> ret;
   for (size_t z = 0; z < 12; z++) {
     while (this->queue_for_client[z].size() > 48) {
       ret.emplace(this->remove(this->queue_for_client[z].begin()->second->data.id, 0xFF));
@@ -94,7 +92,7 @@ std::unordered_set<std::shared_ptr<Lobby::FloorItem>> Lobby::FloorItemManager::e
 }
 
 void Lobby::FloorItemManager::clear_inaccessible(uint16_t remaining_clients_mask) {
-  unordered_set<uint32_t> item_ids_to_delete;
+  std::unordered_set<uint32_t> item_ids_to_delete;
   for (const auto& it : this->items) {
     if ((it.second->flags & remaining_clients_mask) == 0) {
       item_ids_to_delete.emplace(it.first);
@@ -107,7 +105,7 @@ void Lobby::FloorItemManager::clear_inaccessible(uint16_t remaining_clients_mask
 }
 
 void Lobby::FloorItemManager::clear_private() {
-  unordered_set<uint32_t> item_ids_to_delete;
+  std::unordered_set<uint32_t> item_ids_to_delete;
   for (const auto& it : this->items) {
     if ((it.second->flags & 0x00F) != 0x00F) {
       item_ids_to_delete.emplace(it.first);
@@ -130,7 +128,7 @@ void Lobby::FloorItemManager::clear() {
 }
 
 uint32_t Lobby::FloorItemManager::reassign_all_item_ids(uint32_t next_item_id) {
-  ::map<uint32_t, shared_ptr<FloorItem>> old_items;
+  std::map<uint32_t, std::shared_ptr<FloorItem>> old_items;
   old_items.swap(this->items);
   for (auto& queue : this->queue_for_client) {
     queue.clear();
@@ -142,12 +140,13 @@ uint32_t Lobby::FloorItemManager::reassign_all_item_ids(uint32_t next_item_id) {
   return next_item_id;
 }
 
-Lobby::Lobby(shared_ptr<ServerState> s, uint32_t id, bool is_game)
+Lobby::Lobby(std::shared_ptr<ServerState> s, uint32_t id, bool is_game)
     : server_state(s),
       log(std::format("[{}:{:X}] ", is_game ? "Game" : "Lobby", id), lobby_log.min_level),
+      creation_time(phosg::now()),
       lobby_id(id),
       random_seed(phosg::random_object<uint32_t>()),
-      rand_crypt(make_shared<DisabledRandomGenerator>()),
+      rand_crypt(std::make_shared<DisabledRandomGenerator>()),
       drop_mode(ServerDropMode::CLIENT),
       idle_timeout_timer(*s->io_context) {
   this->log.info_f("Created");
@@ -173,21 +172,21 @@ uint8_t Lobby::area_for_floor(Version version, uint8_t floor) const {
   if (this->quest) {
     return this->quest->meta.floor_assignments.at(floor).area;
   }
-  auto sdt = this->require_server_state()->set_data_table(version, this->episode, this->mode, this->difficulty);
+  auto sdt = this->require_server_state()->data->set_data_table(version, this->episode, this->mode, this->difficulty);
   return sdt->default_floor_to_area(this->episode).at(floor);
 }
 
-shared_ptr<ServerState> Lobby::require_server_state() const {
+std::shared_ptr<ServerState> Lobby::require_server_state() const {
   auto s = this->server_state.lock();
   if (!s) {
-    throw logic_error("server is deleted");
+    throw std::logic_error("server is deleted");
   }
   return s;
 }
 
-shared_ptr<Lobby::ChallengeParameters> Lobby::require_challenge_params() const {
+std::shared_ptr<Lobby::ChallengeParameters> Lobby::require_challenge_params() const {
   if (!this->challenge_params) {
-    throw runtime_error("challenge params are missing");
+    throw std::runtime_error("challenge params are missing");
   }
   return this->challenge_params;
 }
@@ -205,30 +204,33 @@ void Lobby::create_item_creator(Version logic_version) {
     logic_version = leader_c ? leader_c->version() : Version::BB_V4;
   }
 
-  shared_ptr<RandomGenerator> rand_crypt;
+  std::shared_ptr<RandomGenerator> rand_crypt;
   if (s->use_psov2_rand_crypt) {
-    rand_crypt = make_shared<PSOV2Encryption>(this->rand_crypt->seed());
+    rand_crypt = std::make_shared<PSOV2Encryption>(this->rand_crypt->seed());
   } else {
-    rand_crypt = make_shared<MT19937Generator>(this->rand_crypt->seed());
+    rand_crypt = std::make_shared<MT19937Generator>(this->rand_crypt->seed());
   }
   uint8_t effective_section_id = this->effective_section_id();
   if (effective_section_id >= 10) {
     effective_section_id = 0x00;
   }
-  this->item_creator = make_shared<ItemCreator>(
-      s->common_item_set(logic_version, this->quest),
-      s->rare_item_set(logic_version, this->quest),
-      s->armor_random_set,
-      s->tool_random_set,
-      s->weapon_random_set(this->difficulty),
-      s->tekker_adjustment_set,
-      s->item_parameter_table(logic_version),
-      s->item_stack_limits(logic_version),
+  this->item_creator = std::make_shared<ItemCreator>(
+      s->data->common_item_set(logic_version, this->quest),
+      s->data->rare_item_set(logic_version, this->quest),
+      s->data->armor_random_set,
+      s->data->tool_random_set,
+      s->data->weapon_random_set(this->difficulty),
+      s->data->tekker_adjustment_set,
+      s->data->item_parameter_table(logic_version),
+      s->data->item_stack_limits(logic_version),
       (this->mode == GameMode::SOLO) ? GameMode::NORMAL : this->mode,
       this->difficulty,
       effective_section_id,
       rand_crypt,
       this->quest ? this->quest->meta.battle_rules : nullptr);
+  if (s->use_legacy_item_random_behavior) {
+    this->item_creator->set_legacy_replay();
+  }
 }
 
 uint8_t Lobby::effective_section_id() const {
@@ -240,7 +242,7 @@ uint8_t Lobby::effective_section_id() const {
   }
   auto leader = this->clients.at(this->leader_id);
   if (leader) {
-    return leader->character_file()->disp.visual.section_id;
+    return leader->character_file()->disp.visual.sh.section_id;
   }
   return 0xFF;
 }
@@ -270,13 +272,13 @@ void Lobby::load_maps() {
   if (this->quest) {
     this->log.info_f("Loading quest supermap");
     auto supermap = this->quest->get_supermap(this->random_seed);
-    this->map_state = make_shared<MapState>(
+    this->map_state = std::make_shared<MapState>(
         this->lobby_id, this->difficulty, this->event, this->random_seed, this->rare_enemy_rates, this->rand_crypt, supermap);
   } else {
     this->log.info_f("Loading free play supermaps");
     auto s = this->require_server_state();
-    auto supermaps = s->supermaps_for_variations(this->episode, this->mode, this->difficulty, this->variations);
-    this->map_state = make_shared<MapState>(
+    auto supermaps = s->data->supermaps_for_variations(this->episode, this->mode, this->difficulty, this->variations);
+    this->map_state = std::make_shared<MapState>(
         this->lobby_id, this->difficulty, this->event, this->random_seed, this->rare_enemy_rates, this->rand_crypt, supermaps);
   }
 
@@ -305,13 +307,13 @@ void Lobby::create_ep3_server() {
 
   bool is_nte = this->is_ep3_nte();
   Episode3::Server::Options options = {
-      .card_index = is_nte ? s->ep3_card_index_trial : s->ep3_card_index,
-      .map_index = s->ep3_map_index,
-      .behavior_flags = s->ep3_behavior_flags,
+      .card_index = is_nte ? s->data->ep3_card_index_trial : s->data->ep3_card_index,
+      .map_index = s->data->ep3_map_index,
+      .behavior_flags = s->data->ep3_behavior_flags,
       .opt_rand_stream = nullptr,
       .rand_crypt = this->rand_crypt,
       .tournament = tourn,
-      .trap_card_ids = s->ep3_trap_card_ids,
+      .trap_card_ids = s->data->ep3_trap_card_ids,
       .output_queue = nullptr,
   };
   if (is_nte) {
@@ -319,7 +321,7 @@ void Lobby::create_ep3_server() {
   } else {
     options.behavior_flags &= (~Episode3::BehaviorFlag::IS_TRIAL_EDITION);
   }
-  this->ep3_server = make_shared<Episode3::Server>(this->shared_from_this(), std::move(options));
+  this->ep3_server = std::make_shared<Episode3::Server>(this->shared_from_this(), std::move(options));
   this->ep3_server->init();
 }
 
@@ -330,6 +332,12 @@ void Lobby::reassign_leader_on_client_departure(size_t leaving_client_index) {
     }
     if (this->clients[x]) {
       this->leader_id = x;
+      // PSO GC's behavior is to reload the ItemPT and ItemRT tables only when the player returns to the city (Pioneer
+      // 2 or Lab). This means the game's effective section ID should only change after the new leader is assigned, and
+      // that new leader returns to the city. On BB, however, there is no evidence that this behavior was preserved;
+      // it's more likely that Sega's server either switched drop tables instantly when the leader changed, or never
+      // switched drop tables after game creation. We implement both of these behaviors (via the USE_CREATOR_SECTION_ID
+      // lobby flag), and we intentionally don't implement the more complex pre-BB behavior.
       this->create_item_creator();
       return;
     }
@@ -371,9 +379,9 @@ bool Lobby::any_v1_clients_present() const {
   return false;
 }
 
-void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
+void Lobby::add_client(std::shared_ptr<Client> c, ssize_t required_client_id) {
   if (!c->login) {
-    throw runtime_error("client is not logged in");
+    throw std::runtime_error("client is not logged in");
   }
 
   ssize_t index;
@@ -381,7 +389,7 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
 
   if (required_client_id >= 0) {
     if (this->clients.at(required_client_id).get()) {
-      throw out_of_range("required slot is in use");
+      throw std::out_of_range("required slot is in use");
     }
     this->clients[required_client_id] = c;
     index = required_client_id;
@@ -394,7 +402,7 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
       }
     }
     if (index < min_client_id) {
-      throw out_of_range("no space left in lobby");
+      throw std::out_of_range("no space left in lobby");
     }
   } else {
     for (index = min_client_id; index < this->max_clients; index++) {
@@ -404,7 +412,7 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
       }
     }
     if (index >= this->max_clients) {
-      throw out_of_range("no space left in lobby");
+      throw std::out_of_range("no space left in lobby");
     }
   }
 
@@ -424,8 +432,7 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
     this->create_item_creator();
   }
 
-  // If this is a lobby or no one was here before this, reassign all the floor
-  // item IDs and reset the next item IDs
+  // If this is a lobby or no one was here before this, reassign all the floor item IDs and reset the next item IDs
   if (!this->is_game() || (leader_index >= this->max_clients)) {
     this->reset_next_item_ids();
     for (auto& m : this->floor_item_managers) {
@@ -433,19 +440,15 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
     }
   }
 
-  // If this is not a game or the joining client is the leader, they will assign
-  // their item IDs BEFORE they process any inbound commands (therefore a 6x6D
-  // command, which we will send during loading, should reflect the item state
-  // AFTER their IDs are assigned). If the joining client is not the leader,
-  // they will not assign their item IDs until they receive a 6x71 command,
-  // which is sent AFTER the 6x6D command, so the 6x6D should reflect the item
-  // state BEFORE their IDs are assigned. (In the latter case, we'll assign the
-  // IDs for real when they send a 6F command, or 6x1F equivalent in the case of
-  // DC NTE and 11/2000.)
+  // If this is not a game or the joining client is the leader, they will assign their item IDs BEFORE they process any
+  // inbound commands (therefore a 6x6D command, which we will send during loading, should reflect the item state AFTER
+  // their IDs are assigned). If the joining client is not the leader, they will not assign their item IDs until they
+  // receive a 6x71 command, which is sent AFTER the 6x6D command, so the 6x6D should reflect the item state BEFORE
+  // their IDs are assigned. (In the latter case, we'll assign the IDs for real when they send a 6F command, or 6x1F
+  // equivalent in the case of DC NTE and 11/2000.)
   this->assign_inventory_and_bank_item_ids(c, (!this->is_game() || (c->lobby_client_id == this->leader_id)));
 
-  // On BB, we send artificial flag state to fix an Episode 2 bug where the
-  // CCA door lock state is overwritten by quests.
+  // On BB, we send flag state to fix an Episode 2 bug where the CCA door lock state is overwritten by quests.
   if (this->is_game() && (c->version() == Version::BB_V4)) {
     c->set_flag(Client::Flag::SHOULD_SEND_ARTIFICIAL_FLAG_STATE);
   }
@@ -456,11 +459,11 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
     PlayerLobbyDataDCGC lobby_data;
     lobby_data.player_tag = 0x00010000;
     lobby_data.guild_card_number = c->login->account->account_id;
-    lobby_data.name.encode(p->disp.name.decode(c->language()), c->language());
+    lobby_data.name.encode(p->disp.visual.name.decode(c->language()), c->language());
     this->battle_record->add_player(
         lobby_data,
         p->inventory,
-        p->disp.to_dcpcv3<false>(c->language(), c->language()),
+        p->disp.to_v123<false>(c->language(), c->language()),
         c->ep3_config ? (c->ep3_config->online_clv_exp / 100) : 0);
   }
 
@@ -482,19 +485,18 @@ void Lobby::add_client(shared_ptr<Client> c, ssize_t required_client_id) {
   }
 }
 
-void Lobby::remove_client(shared_ptr<Client> c) {
+void Lobby::remove_client(std::shared_ptr<Client> c) {
   if (this->clients.at(c->lobby_client_id) != c) {
     auto other_c = this->clients[c->lobby_client_id].get();
-    throw logic_error(std::format(
+    throw std::logic_error(std::format(
         "client\'s lobby client id ({}) does not match client list ({})",
         c->lobby_client_id,
         static_cast<uint8_t>(other_c ? other_c->lobby_client_id : 0xFF)));
   }
   this->clients[c->lobby_client_id] = nullptr;
 
-  // Unassign the client's lobby if it matches the current lobby (it may not
-  // match if the client was already added to another lobby - this can happen
-  // during the lobby change procedure)
+  // Unassign the client's lobby if it matches the current lobby (it may not match if the client was already added to
+  // another lobby - this can happen during the lobby change procedure)
   {
     auto c_lobby = c->lobby.lock();
     if (c_lobby.get() == this) {
@@ -521,9 +523,8 @@ void Lobby::remove_client(shared_ptr<Client> c) {
     }
   }
 
-  // If there are still players left in the lobby, delete all items that only
-  // the leaving player could see. Don't do this if no one is left in the lobby,
-  // since that would mean items could not persist in empty lobbies.
+  // If there are still players left in the lobby, delete all items that only the leaving player could see. Don't do
+  // this if no one is left in the lobby, since that would mean items could not persist in empty lobbies.
   uint16_t remaining_clients_mask = 0;
   for (size_t z = 0; z < 12; z++) {
     if (this->clients[z]) {
@@ -544,8 +545,7 @@ void Lobby::remove_client(shared_ptr<Client> c) {
       this->check_flag(Flag::PERSISTENT) &&
       !this->check_flag(Flag::DEFAULT) &&
       (this->idle_timeout_usecs > 0)) {
-    // If the lobby is persistent but has an idle timeout, make it expire after
-    // the specified time
+    // If the lobby is persistent but has an idle timeout, make it expire after the specified time
     this->idle_timeout_timer.expires_after(std::chrono::microseconds(this->idle_timeout_usecs));
     this->idle_timeout_timer.async_wait([this](std::error_code ec) {
       if (!ec) {
@@ -561,23 +561,20 @@ void Lobby::remove_client(shared_ptr<Client> c) {
   }
 }
 
-void Lobby::move_client_to_lobby(
-    shared_ptr<Lobby> dest_lobby,
-    shared_ptr<Client> c,
-    ssize_t required_client_id) {
+void Lobby::move_client_to_lobby(std::shared_ptr<Lobby> dest_lobby, std::shared_ptr<Client> c, ssize_t required_client_id) {
   if (dest_lobby.get() == this) {
     return;
   }
 
   if (required_client_id >= 0) {
     if (dest_lobby->clients.at(required_client_id)) {
-      throw out_of_range("required slot is in use");
+      throw std::out_of_range("required slot is in use");
     }
   } else {
     ssize_t min_client_id = this->check_flag(Lobby::Flag::IS_SPECTATOR_TEAM) ? 4 : 0;
     size_t available_slots = dest_lobby->max_clients - min_client_id;
     if (dest_lobby->count_clients() >= available_slots) {
-      throw out_of_range("no space left in lobby");
+      throw std::out_of_range("no space left in lobby");
     }
   }
 
@@ -585,7 +582,7 @@ void Lobby::move_client_to_lobby(
   dest_lobby->add_client(c, required_client_id);
 }
 
-shared_ptr<Client> Lobby::find_client(const string* identifier, uint64_t account_id) {
+std::shared_ptr<Client> Lobby::find_client(const std::string* identifier, uint64_t account_id) {
   for (size_t x = 0; x < this->max_clients; x++) {
     auto lc = this->clients[x];
     if (!lc) {
@@ -594,12 +591,12 @@ shared_ptr<Client> Lobby::find_client(const string* identifier, uint64_t account
     if (account_id && lc->login && (lc->login->account->account_id == account_id)) {
       return lc;
     }
-    if (identifier && (lc->character_file()->disp.name.eq(*identifier, lc->language()))) {
+    if (identifier && (lc->character_file()->disp.visual.name.eq(*identifier, lc->language()))) {
       return lc;
     }
   }
 
-  throw out_of_range("client not found");
+  throw std::out_of_range("client not found");
 }
 
 Lobby::JoinError Lobby::join_error_for_client(std::shared_ptr<Client> c, const std::string* password) const {
@@ -648,8 +645,7 @@ Lobby::JoinError Lobby::join_error_for_client(std::shared_ptr<Client> c, const s
         }
       }
     }
-    // Only prevent joining during loading if the client is actually trying to
-    // join (not just loading the game list)
+    // Only prevent joining during loading if the client is actually trying to join (not just loading the game list)
     if (password && this->any_client_loading()) {
       return JoinError::LOADING;
     }
@@ -664,7 +660,7 @@ bool Lobby::item_exists(uint8_t floor, uint32_t item_id) const {
   return this->floor_item_managers.at(floor).exists(item_id);
 }
 
-shared_ptr<Lobby::FloorItem> Lobby::find_item(uint8_t floor, uint32_t item_id) const {
+std::shared_ptr<Lobby::FloorItem> Lobby::find_item(uint8_t floor, uint32_t item_id) const {
   return this->floor_item_managers.at(floor).find(item_id);
 }
 
@@ -680,7 +676,7 @@ void Lobby::add_item(
   this->evict_items_from_floor(floor);
 }
 
-void Lobby::add_item(uint8_t floor, shared_ptr<FloorItem> fi) {
+void Lobby::add_item(uint8_t floor, std::shared_ptr<FloorItem> fi) {
   auto& m = this->floor_item_managers.at(floor);
   m.add(fi);
   this->evict_items_from_floor(floor);
@@ -702,7 +698,7 @@ void Lobby::evict_items_from_floor(uint8_t floor) {
   }
 }
 
-shared_ptr<Lobby::FloorItem> Lobby::remove_item(uint8_t floor, uint32_t item_id, uint8_t requesting_client_id) {
+std::shared_ptr<Lobby::FloorItem> Lobby::remove_item(uint8_t floor, uint32_t item_id, uint8_t requesting_client_id) {
   return this->floor_item_managers.at(floor).remove(item_id, requesting_client_id);
 }
 
@@ -714,9 +710,8 @@ uint32_t Lobby::generate_item_id(uint8_t client_id) {
 }
 
 void Lobby::on_item_id_generated_externally(uint32_t item_id) {
-  // Note: The client checks for the range (0x00010000, 0x02010000) here, but
-  // server-side item drop logic uses 0x00810000 as its base ID, so we restrict
-  // the range further here.
+  // Note: The client checks for the range (0x00010000, 0x02010000) here, but server-side item drop logic uses
+  // 0x00810000 as its base ID, so we restrict the range further here.
   if ((item_id > 0x00010000) && (item_id < 0x00810000)) {
     uint16_t item_client_id = (item_id >> 21) & 0x7FF;
     uint32_t& next_item_id = this->next_item_id_for_client.at(item_client_id);
@@ -724,7 +719,7 @@ void Lobby::on_item_id_generated_externally(uint32_t item_id) {
   }
 }
 
-void Lobby::assign_inventory_and_bank_item_ids(shared_ptr<Client> c, bool consume_ids) {
+void Lobby::assign_inventory_and_bank_item_ids(std::shared_ptr<Client> c, bool consume_ids) {
   auto p = c->character_file();
   uint32_t orig_next_item_id = this->next_item_id_for_client.at(c->lobby_client_id);
   for (size_t z = 0; z < p->inventory.num_items; z++) {
@@ -749,8 +744,8 @@ void Lobby::assign_inventory_and_bank_item_ids(shared_ptr<Client> c, bool consum
   }
 }
 
-unordered_map<uint32_t, shared_ptr<Client>> Lobby::clients_by_account_id() const {
-  unordered_map<uint32_t, shared_ptr<Client>> ret;
+std::unordered_map<uint32_t, std::shared_ptr<Client>> Lobby::clients_by_account_id() const {
+  std::unordered_map<uint32_t, std::shared_ptr<Client>> ret;
   for (auto c : this->clients) {
     if (c && c->login) {
       ret.emplace(c->login->account->account_id, c);
@@ -762,7 +757,7 @@ unordered_map<uint32_t, shared_ptr<Client>> Lobby::clients_by_account_id() const
 QuestIndex::IncludeCondition Lobby::quest_include_condition() const {
   size_t num_players = this->count_clients();
   bool v1_present = this->any_v1_clients_present();
-  return [this, num_players, v1_present](shared_ptr<const Quest> q) -> QuestIndex::IncludeState {
+  return [this, num_players, v1_present](std::shared_ptr<const Quest> q) -> QuestIndex::IncludeState {
     bool is_enabled = true;
     for (const auto& lc : this->clients) {
       auto this_sh = this->shared_from_this();
@@ -777,7 +772,7 @@ QuestIndex::IncludeCondition Lobby::quest_include_condition() const {
   };
 }
 
-bool Lobby::compare_shared(const shared_ptr<const Lobby>& a, const shared_ptr<const Lobby>& b) {
+bool Lobby::compare_shared(const std::shared_ptr<const Lobby>& a, const std::shared_ptr<const Lobby>& b) {
   // Sort keys:
   // 1. Priority class: has free space < empty (persistent) < full < non-joinable (in quest/battle)
   // 2. Password: public < locked
@@ -785,7 +780,7 @@ bool Lobby::compare_shared(const shared_ptr<const Lobby>& a, const shared_ptr<co
   // 4. Episode: 1 < 2 < 4
   // 5. Difficulty: Normal < Hard < Very Hard < Ultimate
   // 6. Game name
-  static auto get_priority = +[](const shared_ptr<const Lobby>& l) -> size_t {
+  static auto get_priority = +[](const std::shared_ptr<const Lobby>& l) -> size_t {
     if (l->check_flag(Lobby::Flag::QUEST_SELECTION_IN_PROGRESS) ||
         l->check_flag(Lobby::Flag::QUEST_IN_PROGRESS) ||
         l->check_flag(Lobby::Flag::BATTLE_IN_PROGRESS)) {
@@ -837,4 +832,36 @@ bool Lobby::compare_shared(const shared_ptr<const Lobby>& a, const shared_ptr<co
   }
 
   return a->name < b->name;
+}
+
+template <>
+const char* phosg::name_for_enum<Lobby::JoinError>(Lobby::JoinError value) {
+  switch (value) {
+    case Lobby::JoinError::ALLOWED:
+      return "ALLOWED";
+    case Lobby::JoinError::FULL:
+      return "FULL";
+    case Lobby::JoinError::VERSION_CONFLICT:
+      return "VERSION_CONFLICT";
+    case Lobby::JoinError::QUEST_SELECTION_IN_PROGRESS:
+      return "QUEST_SELECTION_IN_PROGRESS";
+    case Lobby::JoinError::QUEST_IN_PROGRESS:
+      return "QUEST_IN_PROGRESS";
+    case Lobby::JoinError::BATTLE_IN_PROGRESS:
+      return "BATTLE_IN_PROGRESS";
+    case Lobby::JoinError::LOADING:
+      return "LOADING";
+    case Lobby::JoinError::SOLO:
+      return "SOLO";
+    case Lobby::JoinError::INCORRECT_PASSWORD:
+      return "INCORRECT_PASSWORD";
+    case Lobby::JoinError::LEVEL_TOO_LOW:
+      return "LEVEL_TOO_LOW";
+    case Lobby::JoinError::LEVEL_TOO_HIGH:
+      return "LEVEL_TOO_HIGH";
+    case Lobby::JoinError::NO_ACCESS_TO_QUEST:
+      return "NO_ACCESS_TO_QUEST";
+    default:
+      throw std::runtime_error("invalid drop mode");
+  }
 }

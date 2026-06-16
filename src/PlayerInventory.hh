@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "ChoiceSearch.hh"
-#include "FileContentsCache.hh"
 #include "ItemData.hh"
 #include "PSOEncryption.hh"
 #include "Text.hh"
@@ -21,45 +20,55 @@
 class Client;
 class ItemParameterTable;
 
-// PSO V2 stored some extra data in the character structs in a format that I'm
-// sure Sega thought was very clever for backward compatibility, but for us is
-// just plain annoying. Specifically, they used the third and fourth bytes of
-// the InventoryItem struct to store some things not present in V1. The game
-// stores arrays of bytes striped across these structures. In newserv, we call
-// those fields extension_data. They contain:
+// PSO V2 stored some extra data in the character structs in a format that I'm sure Sega thought was very clever for
+// backward compatibility, but for us is just plain annoying. Specifically, they used the third and fourth bytes of the
+// InventoryItem struct to store some things not present in V1. The game stores arrays of bytes striped across these
+// structures. In newserv, we call those fields extension_data. They contain:
 //   items[0].extension_data1 through items[19].extension_data1:
-//       Extended technique levels. The values in the technique_levels_v1 array
-//       only go up to 14 (tech level 15); if the player has a technique above
-//       level 15, the corresponding extension_data1 field holds the remaining
-//       levels (so a level 20 tech would have 14 in technique_levels_v1 and 5
-//       in the corresponding item's extension_data1 field).
+//       Extended technique levels. The values in the technique_levels_v1 array only go up to 14 (tech level 15); if
+//       the player has a technique above level 15, the extension_data1 field holds the remaining levels (so a level 20
+//       technique would have 14 in technique_levels_v1 and 5 in the corresponding item's extension_data1 field).
 //   items[0].extension_data2 through items[3].extension_data2:
-//       The flags field from the PSOGCCharacterFile::Character struct; see
-//       SaveFileFormats.hh for details.
+//       The flags field from the PSOGCCharacterFile::Character struct; see SaveFileFormats.hh for details.
 //   items[4].extension_data2 through items[7].extension_data2:
-//       The timestamp when the character was last saved, in seconds since
-//       January 1, 2000. Stored little-endian, so items[4] contains the LSB.
+//       The timestamp when the character was last saved, in seconds since January 1, 2000. Stored little-endian, so
+//       items[4] contains the LSB.
 //   items[8].extension_data2 through items[12].extension_data2:
-//       Number of power materials, mind materials, evade materials, def
-//       materials, and luck materials (respectively) used by the player.
+//       Number of power materials, mind materials, evade materials, def materials, and luck materials (respectively)
+//       used by the player.
 //   items[13].extension_data2 through items[15].extension_data2:
 //       Unknown. These are not an array, but do appear to be related.
 
 template <bool BE>
 struct PlayerInventoryItemT {
-  /* 00 */ uint8_t present = 0;
+  // Values for state:
+  //   0 = on floor (used in TItem; not used in PlayerInventoryItem)
+  //   1 = in player's inventory, not equipped
+  //   2 = in player's inventory, equipped
+  //   3 = destroying
+  /* 00 */ uint8_t state = 0;
   /* 01 */ uint8_t unknown_a1 = 0;
   // See note above about these fields
   /* 02 */ uint8_t extension_data1 = 0;
   /* 03 */ uint8_t extension_data2 = 0;
-  /* 04 */ U32T<BE> flags = 0; // 8 = equipped
+  // Bits in the flags field:
+  //   0004 = is equippable item type ("Equip" appears in menu)
+  //   0008 = is equipped
+  //   0010 = is consumable item type (item is automatically deleted when used; also applies to Present)
+  //   0020 = TODO (3OE1:8010B2DC, 3OE1:80120744)
+  //   0040 = hidden (model does not render, no related effects are created, no related sounds are played)
+  //   0080 = TODO (3OE1:TItem_check_flag80; pssibly temp flag only used in Tekker sequence)
+  //   0100 = has kill count
+  //   0200 = kill count limit has been reached (item can be unsealed)
+  //   0400 = wrapped
+  /* 04 */ U32T<BE> flags = 0;
   /* 08 */ ItemData data;
   /* 1C */
 
   PlayerInventoryItemT() = default;
 
   PlayerInventoryItemT(const ItemData& item, bool equipped)
-      : present(1),
+      : state(1),
         unknown_a1(0),
         extension_data1(0),
         extension_data2(0),
@@ -68,7 +77,7 @@ struct PlayerInventoryItemT {
 
   operator PlayerInventoryItemT<!BE>() const {
     PlayerInventoryItemT<!BE> ret;
-    ret.present = this->present;
+    ret.state = this->state;
     ret.unknown_a1 = this->unknown_a1;
     ret.extension_data1 = this->extension_data1;
     ret.extension_data2 = this->extension_data2;
@@ -81,11 +90,9 @@ struct PlayerInventoryItemT {
   bool is_equipped() const {
     return (this->flags & 8);
   }
-} __attribute__((packed));
+} __packed_ws_be__(PlayerInventoryItemT, 0x1C);
 using PlayerInventoryItem = PlayerInventoryItemT<false>;
 using PlayerInventoryItemBE = PlayerInventoryItemT<true>;
-check_struct_size(PlayerInventoryItem, 0x1C);
-check_struct_size(PlayerInventoryItemBE, 0x1C);
 
 template <bool BE>
 struct PlayerBankItemT {
@@ -105,11 +112,9 @@ struct PlayerBankItemT {
     ret.present = this->present;
     return ret;
   }
-} __attribute__((packed));
+} __packed_ws_be__(PlayerBankItemT, 0x18);
 using PlayerBankItem = PlayerBankItemT<false>;
 using PlayerBankItemBE = PlayerBankItemT<true>;
-check_struct_size(PlayerBankItem, 0x18);
-check_struct_size(PlayerBankItemBE, 0x18);
 
 template <bool BE>
 struct PlayerInventoryT {
@@ -149,8 +154,7 @@ struct PlayerInventoryT {
         continue;
       }
 
-      // Units can be equipped in multiple slots, so the currently-equipped slot
-      // is stored in the item data itself.
+      // Units can be equipped in multiple slots, so the currently-equipped slot is stored in the item data itself.
       if (((slot == EquipSlot::UNIT_1) && (i.data.data1[4] != 0x00)) ||
           ((slot == EquipSlot::UNIT_2) && (i.data.data1[4] != 0x01)) ||
           ((slot == EquipSlot::UNIT_3) && (i.data.data1[4] != 0x02)) ||
@@ -237,7 +241,7 @@ struct PlayerInventoryT {
           ((data1_1 < 0) || (this->items[read_offset].data.data1[1] == static_cast<uint8_t>(data1_1))));
       if (!should_delete) {
         if (read_offset != write_offset) {
-          this->items[write_offset].present = this->items[read_offset].present;
+          this->items[write_offset].state = this->items[read_offset].state;
           this->items[write_offset].unknown_a1 = this->items[read_offset].unknown_a1;
           this->items[write_offset].flags = this->items[read_offset].flags;
           this->items[write_offset].data = this->items[read_offset].data;
@@ -258,11 +262,10 @@ struct PlayerInventoryT {
 
   void encode_for_client(Version v, std::shared_ptr<const ItemParameterTable> item_parameter_table) {
     if (v == Version::DC_NTE) {
-      // DC NTE has the item count as a 32-bit value here, whereas every other
-      // version uses a single byte. To stop DC NTE from crashing by trying to
-      // construct far more than 30 TItem objects, we clear the fields DC NTE
-      // doesn't know about. Note that the 11/2000 prototype does not have this
-      // issue - its inventory format matches the rest of the versions.
+      // DC NTE has the item count as a 32-bit value here, whereas every other version uses a single byte. To stop DC
+      // NTE from crashing by trying to construct far more than 30 TItem objects, we clear the fields DC NTE doesn't
+      // know about. Note that the 11/2000 prototype does not have this issue - its inventory format matches the rest
+      // of the versions.
       this->hp_from_materials = 0;
       this->tp_from_materials = 0;
       this->language = Language::JAPANESE;
@@ -276,8 +279,8 @@ struct PlayerInventoryT {
       }
     }
 
-    // For pre-V2 clients, use the V2 parameter table, since the V1 table
-    // doesn't have correct encodings for backward-compatible V2 items.
+    // For pre-V2 clients, use the V2 parameter table, since the V1 table doesn't have correct encodings for backward-
+    // compatible V2 items.
     for (size_t z = 0; z < this->items.size(); z++) {
       this->items[z].data.encode_for_version(v, item_parameter_table);
     }
@@ -298,11 +301,9 @@ struct PlayerInventoryT {
     ret.items = this->items;
     return ret;
   }
-} __attribute__((packed));
+} __packed_ws_be__(PlayerInventoryT, 0x34C);
 using PlayerInventory = PlayerInventoryT<false>;
 using PlayerInventoryBE = PlayerInventoryT<true>;
-check_struct_size(PlayerInventory, 0x34C);
-check_struct_size(PlayerInventoryBE, 0x34C);
 
 template <size_t SlotCount, bool BE>
 struct PlayerBankT {

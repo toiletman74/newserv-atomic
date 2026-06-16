@@ -132,6 +132,9 @@ public:
   explicit PSOV2Encryption(uint32_t seed);
   virtual Type type() const;
 
+  // Optimized implementation of `PSOV2Encryption(seed).next()` for when the caller needs only the first value
+  static uint32_t single(uint32_t seed);
+
 protected:
   virtual void update_stream();
 
@@ -159,8 +162,7 @@ public:
   };
 
   struct KeyFile {
-    // initial_keys are actually a stream of uint32_ts, but we treat them as
-    // bytes for code simplicity
+    // initial_keys are actually a stream of uint32_ts, but we treat them as bytes for code simplicity
     union InitialKeys {
       uint8_t jsd1_stream_offset;
       parray<uint8_t, 0x48> as8;
@@ -176,11 +178,9 @@ public:
     } __packed_ws__(PrivateKeys, 0x1000);
     InitialKeys initial_keys;
     PrivateKeys private_keys;
-    // This field only really needs to be one byte, but annoyingly, some
-    // compilers pad this structure to a longer alignment, presumably because
-    // the unions above contain structures with 32-bit alignment. To prevent
-    // this structure's size from not matching the .nsk files' sizes, we use
-    // an unnecessarily large size for this field.
+    // This field only really needs to be one byte, but annoyingly, some compilers pad this structure to a longer
+    // alignment, presumably because the unions above contain structures with 32-bit alignment. To prevent this
+    // structure's size from not matching the .nsk files' sizes, we use an unnecessarily large size for this field.
     le_uint64_t subtype;
   } __packed_ws__(KeyFile, 0x1050);
 
@@ -198,8 +198,8 @@ protected:
   void apply_seed(const void* original_seed, size_t seed_size);
 };
 
-// The following classes provide support for automatically detecting which type
-// of encryption a client is using based on their initial response to the server
+// The following classes provide support for automatically detecting which type of encryption a client is using based
+// on their initial response to the server
 
 class PSOV2OrV3DetectorEncryption : public PSOEncryption {
 public:
@@ -234,9 +234,8 @@ protected:
   std::shared_ptr<PSOEncryption> active_crypt;
 };
 
-// The following classes provide support for multiple PSOBB private keys, and
-// the ability to automatically detect which key the client is using based on
-// the first 8 bytes they send
+// The following classes provide support for multiple PSOBB private keys, and the ability to automatically detect which
+// key the client is using based on the first 8 bytes they send
 
 class PSOBBMultiKeyDetectorEncryption : public PSOEncryption {
 public:
@@ -344,11 +343,9 @@ public:
     ret.store_raw(this->value);
     return ret;
   }
-} __attribute__((packed));
+} __packed_ws_be__(ChallengeTimeT, 4);
 using ChallengeTime = ChallengeTimeT<false>;
 using ChallengeTimeBE = ChallengeTimeT<true>;
-check_struct_size(ChallengeTime, 4);
-check_struct_size(ChallengeTimeBE, 4);
 
 std::string decrypt_v2_registry_value(const void* data, size_t size);
 
@@ -397,9 +394,7 @@ DecryptedPR2 decrypt_pr2_data(const std::string& data) {
     throw std::runtime_error("not enough data for PR2 header");
   }
   phosg::StringReader r(data);
-  DecryptedPR2 ret = {
-      .compressed_data = data.substr(8),
-      .decompressed_size = r.get<U32T<BE>>()};
+  DecryptedPR2 ret = {.compressed_data = data.substr(8), .decompressed_size = r.get<U32T<BE>>()};
   PSOV2Encryption crypt(r.get<U32T<BE>>());
   if (BE) {
     crypt.encrypt_big_endian(ret.compressed_data.data(), ret.compressed_data.size());
@@ -426,12 +421,11 @@ std::string encrypt_pr2_data(const std::string& data, size_t decompressed_size, 
   w.put<U32T<BE>>(seed);
   w.write(data);
 
-  std::string ret = std::move(w.str());
   PSOV2Encryption crypt(seed);
   if (BE) {
-    crypt.encrypt_big_endian(ret.data() + 8, ret.size() - 8);
+    crypt.encrypt_big_endian(w.str().data() + 8, w.str().size() - 8);
   } else {
-    crypt.decrypt(ret.data() + 8, ret.size() - 8);
+    crypt.decrypt(w.str().data() + 8, w.str().size() - 8);
   }
-  return ret;
+  return std::move(w.str());
 }

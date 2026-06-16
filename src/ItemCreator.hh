@@ -7,7 +7,9 @@
 #include "PSOEncryption.hh"
 #include "PlayerSubordinates.hh"
 #include "RareItemSet.hh"
+#include "ShopRandomSets.hh"
 #include "StaticGameData.hh"
+#include "TekkerAdjustmentSet.hh"
 
 // This file and ItemCreator.cc are essentially a direct reverse-engineering of the item creation algorithm in PSO GC.
 // Only minor changes have been made to support BB (as described in the comments in the implementation) and to support
@@ -19,9 +21,9 @@ public:
   ItemCreator(
       std::shared_ptr<const CommonItemSet> common_item_set,
       std::shared_ptr<const RareItemSet> rare_item_set,
-      std::shared_ptr<const ArmorRandomSet> armor_random_set,
-      std::shared_ptr<const ToolRandomSet> tool_random_set,
-      std::shared_ptr<const WeaponRandomSet> weapon_random_set,
+      std::shared_ptr<const ArmorShopRandomSet> armor_random_set,
+      std::shared_ptr<const ToolShopRandomSet> tool_random_set,
+      std::shared_ptr<const WeaponShopRandomSet> weapon_random_set,
       std::shared_ptr<const TekkerAdjustmentSet> tekker_adjustment_set,
       std::shared_ptr<const ItemParameterTable> item_parameter_table,
       std::shared_ptr<const ItemData::StackLimits> stack_limits,
@@ -37,10 +39,15 @@ public:
     bool is_from_rare_table = false;
   };
 
-  DropResult on_monster_item_drop(uint32_t enemy_type, uint8_t area);
-  DropResult on_box_item_drop(uint8_t area);
+  inline void set_legacy_replay() {
+    this->is_legacy_replay = true;
+  }
+
+  DropResult on_monster_item_drop(EnemyType enemy_type, uint8_t area, bool force_rare);
+  DropResult on_box_item_drop(uint8_t area, bool force_rare);
   // Note: param3-6 refer to the corresponding fields of the object definition
-  DropResult on_specialized_box_item_drop(uint8_t area, float param3, uint32_t param4, uint32_t param5, uint32_t param6);
+  DropResult on_specialized_box_item_drop(
+      uint8_t area, float param3, uint32_t param4, uint32_t param5, uint32_t param6);
   ItemData base_item_for_specialized_box(uint32_t param4, uint32_t param5, uint32_t param6) const;
 
   std::vector<ItemData> generate_armor_shop_contents(Episode episode, size_t player_level);
@@ -69,14 +76,15 @@ private:
 
   phosg::PrefixedLogger log;
   Version logic_version;
+  bool is_legacy_replay;
   std::shared_ptr<const ItemData::StackLimits> stack_limits;
   GameMode mode;
   Difficulty difficulty;
   uint8_t section_id;
   std::shared_ptr<const RareItemSet> rare_item_set;
-  std::shared_ptr<const ArmorRandomSet> armor_random_set;
-  std::shared_ptr<const ToolRandomSet> tool_random_set;
-  std::shared_ptr<const WeaponRandomSet> weapon_random_set;
+  std::shared_ptr<const ArmorShopRandomSet> armor_random_set;
+  std::shared_ptr<const ToolShopRandomSet> tool_random_set;
+  std::shared_ptr<const WeaponShopRandomSet> weapon_random_set;
   std::shared_ptr<const TekkerAdjustmentSet> tekker_adjustment_set;
   std::shared_ptr<const ItemParameterTable> item_parameter_table;
   std::shared_ptr<const CommonItemSet> common_item_set;
@@ -116,14 +124,15 @@ private:
   uint32_t rand_int(uint64_t max);
   float rand_float_0_1_from_crypt();
 
-  template <size_t NumRanges>
-  uint32_t choose_meseta_amount(const parray<CommonItemSet::Table::Range<uint16_t>, NumRanges> ranges, size_t table_index);
+  uint32_t choose_meseta_amount(const CommonItemSet::Table::Range<uint16_t>& range);
 
   bool should_allow_meseta_drops() const;
 
-  ItemData check_rare_spec_and_create_rare_enemy_item(uint32_t enemy_type, uint8_t area);
-  ItemData check_rare_specs_and_create_rare_box_item(uint8_t area);
-  ItemData check_rate_and_create_rare_item(const RareItemSet::ExpandedDrop& drop, uint8_t area);
+  ItemData check_rare_spec_and_create_rare_enemy_item(EnemyType enemy_type, uint8_t area, bool force_rare);
+  ItemData check_rare_specs_and_create_rare_box_item(uint8_t area, bool force_rare);
+  ItemData check_rare_specs_and_create_rare_item(
+      const std::vector<RareItemSet::ExpandedDrop>& specs, uint8_t area, bool force_rare);
+  ItemData create_rare_item(const ItemData& drop_item, uint8_t area);
 
   void generate_rare_weapon_bonuses(ItemData& item, Episode episode, uint32_t random_sample);
   void deduplicate_weapon_bonuses(ItemData& item) const;

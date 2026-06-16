@@ -60,10 +60,14 @@ set(SOURCES
     src/ChatCommands.cc
     src/ChoiceSearch.cc
     src/Client.cc
+    src/ClientFunctionIndex.cc
+    src/CommandCensorData.cc
     src/CommonItemSet.cc
     src/Compression.cc
     src/DCSerialNumbers.cc
     src/DNSServer.cc
+    src/DOLFileIndex.cc
+    src/DataIndex.cc
     src/DownloadSession.cc
     src/EnemyType.cc
     src/Episode3/AssistServer.cc
@@ -78,8 +82,6 @@ set(SOURCES
     src/Episode3/RulerServer.cc
     src/Episode3/Server.cc
     src/Episode3/Tournament.cc
-    src/FileContentsCache.cc
-    src/FunctionCompiler.cc
     src/GameServer.cc
     src/GSLArchive.cc
     src/HTTPServer.cc
@@ -97,6 +99,7 @@ set(SOURCES
     src/LevelTable.cc
     src/Lobby.cc
     src/Loggers.cc
+    src/MagMetadataTable.cc
     src/Main.cc
     src/Map.cc
     src/Menu.cc
@@ -123,9 +126,11 @@ set(SOURCES
     src/ServerShell.cc
     src/ServerState.cc
     src/ShellCommands.cc
+    src/ShopRandomSets.cc
     src/SignalWatcher.cc
     src/StaticGameData.cc
     src/TeamIndex.cc
+    src/TekkerAdjustmentSet.cc
     src/Text.cc
     src/TextIndex.cc
     src/Version.cc
@@ -134,11 +139,12 @@ set(SOURCES
 
 add_executable(newserv ${SOURCES})
 target_include_directories(newserv PUBLIC ${ASIO_INCLUDE_DIR} ${Iconv_INCLUDE_DIRS})
-target_link_libraries(newserv phosg::phosg ${Iconv_LIBRARIES} pthread resource_file::resource_file)
+target_link_libraries(newserv phosg::phosg ${Iconv_LIBRARIES} resource_file::resource_file)
 if (WIN32)
-    target_compile_definitions(newserv PUBLIC -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00)
-    target_link_libraries(newserv ws2_32 mswsock bcrypt iphlpapi -static -static-libgcc -static-libstdc++)
-    target_compile_options(newserv PRIVATE -Wa,-mbig-obj)
+    target_compile_definitions(newserv PUBLIC WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+    target_compile_options(newserv PRIVATE -Wa,-mbig-obj -Wno-mismatched-new-delete)
+    target_link_options(newserv PRIVATE -static -static-libgcc -static-libstdc++)
+    target_link_libraries(newserv ws2_32 mswsock bcrypt iphlpapi)
 endif()
 add_dependencies(newserv newserv-Revision-cc)
 
@@ -151,23 +157,19 @@ add_dependencies(newserv newserv-Revision-cc)
 
 enable_testing()
 
-file(GLOB LogTestCases ${CMAKE_SOURCE_DIR}/tests/*.test.txt)
-file(GLOB LogRDTestCases ${CMAKE_SOURCE_DIR}/tests/*.rdtest.txt)
+file(GLOB LOG_TEST_CASES ${CMAKE_SOURCE_DIR}/tests/*.test.txt)
+list(TRANSFORM LOG_TEST_CASES PREPEND "--replay-log=" OUTPUT_VARIABLE LOG_REPLAY_ARGS)
+add_test(
+    NAME "log-replays"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMAND ${CMAKE_BINARY_DIR}/newserv --debug --parallel --config=${CMAKE_SOURCE_DIR}/tests/config.json ${LOG_REPLAY_ARGS})
 
-foreach(LogTestCase IN ITEMS ${LogTestCases})
+file(GLOB SCRIPT_TEST_CASES ${CMAKE_SOURCE_DIR}/tests/*.test.sh)
+foreach(SCRIPT_TEST_CASE IN ITEMS ${SCRIPT_TEST_CASES})
     add_test(
-        NAME ${LogTestCase}
+        NAME ${SCRIPT_TEST_CASE}
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMAND ${CMAKE_BINARY_DIR}/newserv --replay-log=${LogTestCase} --config=${CMAKE_SOURCE_DIR}/tests/config.json)
-endforeach()
-
-file(GLOB ScriptTestCases ${CMAKE_SOURCE_DIR}/tests/*.test.sh)
-
-foreach(ScriptTestCase IN ITEMS ${ScriptTestCases})
-    add_test(
-        NAME ${ScriptTestCase}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        COMMAND ${ScriptTestCase} ${CMAKE_BINARY_DIR}/newserv)
+        COMMAND ${SCRIPT_TEST_CASE} ${CMAKE_BINARY_DIR}/newserv)
 endforeach()
 
 

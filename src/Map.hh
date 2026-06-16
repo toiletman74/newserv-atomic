@@ -303,20 +303,24 @@ public:
   } __packed_ws__(Event2Entry, 0x18);
 
   struct RandomEnemyLocationsHeader { // Section type 4 (RANDOM_ENEMY_LOCATIONS)
-    /* 00 */ le_uint32_t room_table_offset; // Offset to RandomEnemyLocationSection structs, from start of this struct
+    // The room table specifies which locations are valid for each room, but these are specified indirectly as offsets
+    // into the entries table (pointed to by entries_offset). The entries in the room table must be sorted in
+    // increasing order of room_id; if they aren't, the client may fail to find a valid room during enemy placement,
+    // which can crash the client.
+    /* 00 */ le_uint32_t room_table_offset; // Offset to RandomEnemyRoom structs, from start of this struct
     /* 04 */ le_uint32_t entries_offset; // Offset to RandomEnemyLocation structs, from start of this struct
     /* 08 */ le_uint32_t num_rooms;
     /* 0C */
   } __packed_ws__(RandomEnemyLocationsHeader, 0x0C);
 
-  struct RandomEnemyLocationSection { // Section type 4 (RANDOM_ENEMY_LOCATIONS)
-    /* 00 */ le_uint16_t room;
+  struct RandomEnemyRoom { // Section type 4 (RANDOM_ENEMY_LOCATIONS)
+    /* 00 */ le_uint16_t room_id;
     /* 02 */ le_uint16_t count;
     /* 04 */ le_uint32_t offset; // Bytes from start of RandomEnemyLocation section
     /* 08 */
 
     std::string str() const;
-  } __packed_ws__(RandomEnemyLocationSection, 8);
+  } __packed_ws__(RandomEnemyRoom, 8);
 
   struct RandomEnemyLocation { // Section type 4 (RANDOM_ENEMY_LOCATIONS)
     /* 00 */ VectorXYZF pos;
@@ -376,10 +380,13 @@ public:
     explicit RandomState(uint32_t random_seed);
     size_t rand_int_biased(size_t min_v, size_t max_v);
     uint32_t next_location_index();
-    void generate_shuffled_location_table(const RandomEnemyLocationsHeader& header, phosg::StringReader r, uint16_t room);
+    void generate_shuffled_location_table(
+        const RandomEnemyLocationsHeader& header, phosg::StringReader r, uint16_t room_id);
   };
 
   struct FloorSections {
+    uint8_t floor = 0xFF;
+
     size_t object_sets_file_offset = 0;
     size_t object_sets_file_size = 0;
     const ObjectSetEntry* object_sets = nullptr;
@@ -407,8 +414,8 @@ public:
     size_t random_enemy_locations_file_size = 0;
     const void* random_enemy_locations_data = nullptr;
     size_t random_enemy_locations_data_size = 0;
-    const RandomEnemyLocationSection* random_enemy_location_sections = nullptr;
-    size_t random_enemy_location_section_count = 0;
+    const RandomEnemyRoom* random_enemy_rooms = nullptr;
+    size_t random_enemy_room_count = 0;
     const RandomEnemyLocation* random_enemy_locations = nullptr;
     size_t random_enemy_location_count = 0;
 
@@ -418,13 +425,13 @@ public:
     size_t random_enemy_definitions_data_size = 0;
     const RandomEnemyDefinition* random_enemy_definitions = nullptr;
     size_t random_enemy_definition_count = 0;
-    const RandomEnemyWeight* random_enemy_definition_weights = nullptr;
-    size_t random_enemy_definition_weight_count = 0;
+    const RandomEnemyWeight* random_enemy_weights = nullptr;
+    size_t random_enemy_weight_count = 0;
   };
 
   // Quest constructor
   MapFile(std::shared_ptr<const std::string> quest_data);
-  // Non-quest constructor
+  // Free-play constructor
   MapFile(
       uint8_t floor,
       std::shared_ptr<const std::string> objects_data,
@@ -449,9 +456,9 @@ public:
     return this->has_any_random_sections;
   }
 
-  // If the map file has no random sections, does nothing and returns a shared_ptr to this. If it has any random
+  // If the map file has no random sections, does nothing and returns a std::shared_ptr to this. If it has any random
   // sections, returns a new map with all non-random sections copied verbatim, and random sections replaced with
-  // non-random sections according to the challenge mode generation algorithm.
+  // non-random sections according to the challenge mode enemy generation algorithm.
   std::shared_ptr<MapFile> materialize_random_sections(uint32_t random_seed);
   std::shared_ptr<const MapFile> materialize_random_sections(uint32_t random_seed) const;
 
@@ -468,6 +475,8 @@ public:
 
   static std::string disassemble_action_stream(const void* data, size_t size);
   std::string disassemble(bool reassembly = false, Version version = Version::UNKNOWN) const;
+
+  std::string serialize() const;
 
 protected:
   static const std::array<uint32_t, 41> RAND_ENEMY_BASE_TYPES;
@@ -498,7 +507,7 @@ protected:
 // identifies the entity on all PSO versions. (These are the IDs which newserv formats as K-XXX, E-XXX, and W-XXX,
 // though they are offset as needed for floors beyond the first.)
 // There must not be any random enemy sections in any MapFile passed to SuperMap; to resolve them,
-// materialize_random_sections must be called on all MapFiles first. This generally only is needed in Challenge mode.
+// materialize_random_sections must be called on all MapFiles first. This is generally only needed in Challenge mode.
 
 class SuperMap {
 public:
@@ -757,10 +766,12 @@ public:
     std::shared_ptr<const SuperMap::Enemy> super_ene;
     enum Flag {
       LAST_HIT_MASK = 0x0003,
-      EXP_GIVEN = 0x0004,
-      ITEM_DROPPED = 0x0008,
-      ALL_HITS_MASK_FIRST = 0x0010,
-      ALL_HITS_MASK = 0x00F0,
+      ITEM_DROPPED = 0x0004,
+      SHARED_EXP_GIVEN = 0x0008,
+      FULL_EXP_GIVEN_MASK_FIRST = 0x0010,
+      FULL_EXP_GIVEN_MASK = 0x00F0,
+      ALL_HITS_MASK_FIRST = 0x0100,
+      ALL_HITS_MASK = 0x0F00,
     };
     size_t e_id = 0;
     size_t set_id = 0;
@@ -806,6 +817,23 @@ public:
         return type_definition_for_enemy(this->super_ene->type).rare_type(area, event);
       } else {
         return this->super_ene->type;
+      }
+    }
+    inline bool should_give_shared_exp() {
+      if (this->server_flags & Flag::SHARED_EXP_GIVEN) {
+        return false;
+      } else {
+        this->server_flags |= Flag::SHARED_EXP_GIVEN;
+        return true;
+      }
+    }
+    inline bool should_give_full_exp_for_client_id(uint8_t client_id) {
+      uint16_t flag = (Flag::FULL_EXP_GIVEN_MASK_FIRST << client_id);
+      if (this->server_flags & flag) {
+        return false;
+      } else {
+        this->server_flags |= flag;
+        return true;
       }
     }
     inline bool ever_hit_by_client_id(uint8_t client_id) const {

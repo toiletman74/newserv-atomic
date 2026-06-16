@@ -7,6 +7,7 @@
 
 #include <initializer_list>
 #include <phosg/Encoding.hh>
+#include <phosg/JSON.hh>
 #include <phosg/Strings.hh>
 #include <stdexcept>
 #include <string>
@@ -21,6 +22,11 @@
 #define __packed_ws__(StructT, Size) \
   __attribute__((packed));           \
   check_struct_size(StructT, Size)
+
+#define __packed_ws_be__(StructT, Size)    \
+  __attribute__((packed));                 \
+  check_struct_size(StructT<false>, Size); \
+  check_struct_size(StructT<true>, Size)
 
 // Conversion functions
 
@@ -71,16 +77,16 @@ protected:
   virtual std::string on_untranslatable(const void** src, size_t* size) const;
 };
 
-extern TextTranscoder tt_8859_to_utf8;
-extern TextTranscoder tt_utf8_to_8859;
-extern TextTranscoder tt_standard_sjis_to_utf8;
-extern TextTranscoder tt_utf8_to_standard_sjis;
-extern TextTranscoderCustomSJISToUTF8 tt_sega_sjis_to_utf8;
-extern TextTranscoderUTF8ToCustomSJIS tt_utf8_to_sega_sjis;
-extern TextTranscoder tt_utf16_to_utf8;
-extern TextTranscoder tt_utf8_to_utf16;
-extern TextTranscoder tt_ascii_to_utf8;
-extern TextTranscoder tt_utf8_to_ascii;
+extern thread_local TextTranscoder tt_8859_to_utf8;
+extern thread_local TextTranscoder tt_utf8_to_8859;
+extern thread_local TextTranscoder tt_standard_sjis_to_utf8;
+extern thread_local TextTranscoder tt_utf8_to_standard_sjis;
+extern thread_local TextTranscoderCustomSJISToUTF8 tt_sega_sjis_to_utf8;
+extern thread_local TextTranscoderUTF8ToCustomSJIS tt_utf8_to_sega_sjis;
+extern thread_local TextTranscoder tt_utf16_to_utf8;
+extern thread_local TextTranscoder tt_utf8_to_utf16;
+extern thread_local TextTranscoder tt_ascii_to_utf8;
+extern thread_local TextTranscoder tt_utf8_to_ascii;
 
 std::string tt_encode_marked_optional(const std::string& utf8, Language default_language, bool is_utf16);
 std::string tt_encode_marked(const std::string& utf8, Language default_language, bool is_utf16);
@@ -154,8 +160,8 @@ struct parray {
     if (index >= Count) {
       throw std::out_of_range("array index out of bounds");
     }
-    // Note: This looks really dumb, but apparently works around an issue in GCC
-    // that causes a "returning address of temporary" error here.
+    // Note: This looks really dumb, but apparently works around an issue in GCC that causes a "returning address of
+    // temporary" error here.
     return *&this->items[index];
   }
   const ItemT& operator[](size_t index) const {
@@ -303,6 +309,20 @@ struct parray {
     }
     return true;
   }
+
+  phosg::JSON json() const {
+    auto ret = phosg::JSON::list();
+    for (size_t z = 0; z < Count; z++) {
+      if constexpr (requires(ItemT x) { x.json(); }) {
+        ret.emplace_back(this->items[z].json());
+      } else if constexpr (requires(ItemT x) { x.load(); }) {
+        ret.emplace_back(this->items[z].load());
+      } else {
+        ret.emplace_back(this->items[z]);
+      }
+    }
+    return ret;
+  }
 } __attribute__((packed));
 
 template <typename ItemT, size_t Count>
@@ -448,8 +468,8 @@ void decrypt_challenge_rank_text_t(void* vdata, size_t count) {
   }
 }
 
-// This struct does not inherit from parray, even though it's semantically
-// similar, because we want to enforce that the correct encoding is used.
+// This struct does not inherit from parray, even though it's semantically similar, because we want to enforce that the
+// correct encoding is used.
 template <
     TextEncoding Encoding,
     size_t Chars,
@@ -466,8 +486,14 @@ struct pstring {
 
   uint8_t data[Bytes];
 
-  pstring() {
-    memset(this->data, 0, Bytes);
+  pstring(uint8_t v = 0) {
+    memset(this->data, v, Bytes);
+  }
+  pstring(const void* data, size_t size) {
+    memcpy(this->data, data, std::min<size_t>(size, Bytes));
+    if (size < Bytes) {
+      memset(this->data + size, 0, Bytes - size);
+    }
   }
   pstring(const pstring<Encoding, Chars, BytesPerChar>& other) {
     memcpy(this->data, other.data, Bytes);
@@ -722,8 +748,7 @@ struct pstring {
     return this->data[pos];
   }
 
-  // Note: The contents of a pstring do not have to be null-terminated, so there
-  // is no  function.
+  // Note: The contents of a pstring do not have to be null-terminated, so there is no .c_str() function.
 } __attribute__((packed));
 
 // Helper functions
@@ -736,8 +761,8 @@ std::string add_color(const std::string& s);
 size_t add_color_inplace(char* a, size_t max_chars);
 void add_color_inplace(std::string& s);
 
-// remove_color does the opposite of add_color (it changes \t into $, for
-// example). strip_color is irreversible; it deletes color escape sequences.
+// remove_color does the opposite of add_color (it changes \t into $, for example). strip_color is irreversible; it
+// deletes color escape sequences.
 void remove_color(phosg::StringWriter& w, const char* src, size_t max_input_chars);
 std::string remove_color(const std::string& s);
 

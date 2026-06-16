@@ -1,8 +1,8 @@
 #include "ItemNameIndex.hh"
 
-#include "StaticGameData.hh"
+#include <algorithm>
 
-using namespace std;
+#include "StaticGameData.hh"
 
 ItemNameIndex::ItemNameIndex(
     std::shared_ptr<const ItemParameterTable> item_parameter_table,
@@ -17,17 +17,17 @@ ItemNameIndex::ItemNameIndex(
       continue;
     }
 
-    const string* name = nullptr;
+    const std::string* name = nullptr;
     bool is_es_weapon = false;
     try {
       ItemData item = ItemData::from_primary_identifier(*this->limits, primary_identifier);
       is_es_weapon = item.is_s_rank_weapon();
       name = &name_coll.at(item_parameter_table->get_item_id(item));
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
     }
 
     if (name) {
-      auto meta = make_shared<ItemMetadata>();
+      auto meta = std::make_shared<ItemMetadata>();
       meta->primary_identifier = primary_identifier;
       meta->name = *name;
       this->primary_identifier_index.emplace(meta->primary_identifier, meta);
@@ -42,7 +42,7 @@ ItemNameIndex::ItemNameIndex(
 static std::string s_rank_name_characters("\0ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_", 0x20);
 
 // clang-format off
-static const array<const char*, 0x29> name_for_weapon_special = {
+static const std::array<const char*, 0x29> name_for_weapon_special = {
     nullptr,
     "Draw",      // Type: 0001, amount: 0005
     "Drain",     // Type: 0001, amount: 0009
@@ -87,7 +87,7 @@ static const array<const char*, 0x29> name_for_weapon_special = {
 };
 // clang-format on
 
-const array<const char*, 0x11> name_for_s_rank_special = {
+const std::array<const char*, 0x11> name_for_s_rank_special = {
     nullptr,
     "Jellen",
     "Zalure",
@@ -115,7 +115,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
     return std::format("{}{} Meseta", include_color_escapes ? "$C7" : "", item.data2d);
   }
 
-  vector<string> ret_tokens;
+  std::vector<std::string> ret_tokens;
 
   // For weapons, specials appear before the weapon name
   bool is_unidentified = false;
@@ -133,7 +133,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
     if (special_id) {
       try {
         ret_tokens.emplace_back(name_for_weapon_special.at(special_id));
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         ret_tokens.emplace_back(std::format("!SP:{:02X}", special_id));
       }
     }
@@ -141,14 +141,13 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
   if (!name_only && (item.data1[0] == 0x00) && (item.data1[2] != 0x00) && item.is_s_rank_weapon()) {
     try {
       ret_tokens.emplace_back(name_for_s_rank_special.at(item.data1[2]));
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       ret_tokens.emplace_back(std::format("!SSP:{:02X}", item.data1[2]));
     }
   }
 
-  // Armors, shields, and units (0x01) can be wrapped, as can mags (0x02) and
-  // non-stackable tools (0x03). However, each of these item classes has its
-  // flags in a different location.
+  // Armors, shields, and units (0x01) can be wrapped, as can mags (0x02) and non-stackable tools (0x03). However, each
+  // of these item classes has its flags in a different location.
   if (!name_only &&
       (((item.data1[0] == 0x01) && (item.data1[4] & 0x40)) ||
           ((item.data1[0] == 0x02) && (item.data2[2] & 0x40)) ||
@@ -159,11 +158,11 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
   // Add the item name
   uint32_t primary_identifier = item.primary_identifier();
   if ((primary_identifier & 0xFFFF0000) == 0x03020000) {
-    string technique_name;
+    std::string technique_name;
     try {
       technique_name = tech_id_to_name.at(item.data1[4]);
       technique_name[0] = toupper(technique_name[0]);
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       technique_name = std::format("!TD:{:02X}", item.data1[4]);
     }
     // Hide the level for Reverser and Ryuker, unless the level isn't 1
@@ -176,7 +175,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
     try {
       auto meta = this->primary_identifier_index.at(primary_identifier);
       ret_tokens.emplace_back(meta->name);
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       ret_tokens.emplace_back(std::format("!ID:{:08X}", primary_identifier));
     }
   }
@@ -188,12 +187,10 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
     }
 
     if (item.is_s_rank_weapon()) {
-      // S-rank weapons have names instead of percent bonuses. The name is
-      // encoded as 9 5-bit characters in the bytes where the bonuses usually
-      // go. The first character does not appear when the name is rendered;
-      // instead, it's used to determine if the weapon type name should appear
-      // or not. Unlike the client, we check the first character directly and
-      // don't bother decoding it.
+      // S-rank weapons have names instead of percent bonuses. The name is encoded as 9 5-bit characters in the bytes
+      // where the bonuses usually go. The first character does not appear when the name is rendered; instead, it's
+      // used to determine if the weapon type name should appear or not. Unlike the client, we check the first
+      // character directly and don't bother decoding it.
       uint16_t be_data1w3 = phosg::bswap16(item.data1w[3]);
       uint16_t be_data1w4 = phosg::bswap16(item.data1w[4]);
       uint16_t be_data1w5 = phosg::bswap16(item.data1w[5]);
@@ -209,7 +206,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
           static_cast<uint8_t>(be_data1w5 & 0x1F),
       };
 
-      string name;
+      std::string name;
       for (size_t x = 0; x < 8; x++) {
         char ch = s_rank_name_characters.at(char_indexes[x]);
         if (ch == 0) {
@@ -307,7 +304,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
     uint16_t pow = item.data1w[3];
     uint16_t dex = item.data1w[4];
     uint16_t mind = item.data1w[5];
-    auto format_stat = +[](uint16_t stat) -> string {
+    auto format_stat = +[](uint16_t stat) -> std::string {
       uint16_t level = stat / 100;
       uint8_t partial = stat % 100;
       if (partial == 0) {
@@ -324,8 +321,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
 
     uint8_t flags = item.data2[2];
     if (flags & 7) {
-      static const vector<const char*> pb_shortnames = {
-          "F", "E", "G", "P", "L", "M&Y", "MG", "GR"};
+      static const std::vector<const char*> pb_shortnames = {"F", "E", "G", "P", "L", "M&Y", "MG", "GR"};
 
       const char* pb_names[3] = {nullptr, nullptr, nullptr};
       uint8_t left_pb = item.mag_photon_blast_for_slot(2);
@@ -341,7 +337,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
         pb_names[2] = pb_shortnames[right_pb];
       }
 
-      string token = "PB:";
+      std::string token = "PB:";
       for (size_t x = 0; x < 3; x++) {
         if (pb_names[x] == nullptr) {
           continue;
@@ -356,7 +352,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
 
     try {
       ret_tokens.emplace_back(std::format("({})", name_for_mag_color.at(item.data2[3])));
-    } catch (const out_of_range&) {
+    } catch (const std::out_of_range&) {
       ret_tokens.emplace_back(std::format("(!CL:{:02X})", item.data2[3]));
     }
 
@@ -367,7 +363,7 @@ std::string ItemNameIndex::describe_item(const ItemData& item, uint8_t flags) co
     }
   }
 
-  string ret = phosg::join(ret_tokens, " ");
+  std::string ret = phosg::join(ret_tokens, " ");
   if (include_color_escapes) {
     if (is_unidentified) {
       return "$C3" + ret;
@@ -389,18 +385,18 @@ ItemData ItemNameIndex::parse_item_description(const std::string& desc) const {
   ItemData ret;
   try {
     ret = this->parse_item_description_phase(desc, false);
-  } catch (const exception& e1) {
+  } catch (const std::exception& e1) {
     try {
       ret = this->parse_item_description_phase(desc, true);
-    } catch (const exception& e2) {
+    } catch (const std::exception& e2) {
       try {
         ret = ItemData::from_data(phosg::parse_data_string(desc));
-      } catch (const exception& ed) {
+      } catch (const std::exception& ed) {
         if (strcmp(e1.what(), e2.what())) {
-          throw runtime_error(std::format("cannot parse item description \"{}\" (as text 1: {}) (as text 2: {}) (as data: {})",
+          throw std::runtime_error(std::format("cannot parse item description \"{}\" (as text 1: {}) (as text 2: {}) (as data: {})",
               desc, e1.what(), e2.what(), ed.what()));
         } else {
-          throw runtime_error(std::format("cannot parse item description \"{}\" (as text: {}) (as data: {})",
+          throw std::runtime_error(std::format("cannot parse item description \"{}\" (as text: {}) (as data: {})",
               desc, e1.what(), ed.what()));
         }
       }
@@ -416,17 +412,17 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
   ret.id = 0xFFFFFFFF;
   ret.data2d = 0;
 
-  string desc = phosg::tolower(description);
+  std::string desc = phosg::tolower(description);
   if (desc.ends_with(" meseta")) {
     ret.data1[0] = 0x04;
-    ret.data2d = stol(desc, nullptr, 10);
+    ret.data2d = std::stol(desc, nullptr, 10);
     return ret;
   }
 
   if (desc.starts_with("es ")) {
     auto parse_name = [&](const std::string& token) -> void {
       if (token.size() > 8) {
-        throw runtime_error("s-rank name too long");
+        throw std::runtime_error("s-rank name too long");
       }
 
       uint8_t char_indexes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -434,7 +430,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
         char ch = toupper(token[z]);
         size_t pos = s_rank_name_characters.find(ch);
         if (pos == std::string::npos) {
-          throw runtime_error(std::format("s-rank name contains invalid character {:02X} ({})", ch, ch));
+          throw std::runtime_error(std::format("s-rank name contains invalid character {:02X} ({})", ch, ch));
         }
         char_indexes[z] = pos;
       }
@@ -540,10 +536,10 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
       ret.data1[4] = tech;
     } else {
       if (tokens.size() != 2) {
-        throw runtime_error("invalid tech disk format");
+        throw std::runtime_error("invalid tech disk format");
       }
       if (!tokens[1].starts_with("lv.")) {
-        throw runtime_error("invalid tech disk level");
+        throw std::runtime_error("invalid tech disk level");
       }
       uint8_t tech = technique_for_name(tokens[0]);
       uint8_t level = stoul(tokens[1].substr(3), nullptr, 10) - 1;
@@ -576,7 +572,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
       if (!name_for_weapon_special[z]) {
         continue;
       }
-      string prefix = phosg::tolower(name_for_weapon_special[z]);
+      std::string prefix = phosg::tolower(name_for_weapon_special[z]);
       prefix += ' ';
       if (desc.starts_with(prefix)) {
         weapon_special = z;
@@ -587,22 +583,21 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
   }
 
   auto name_it = this->name_index.lower_bound(desc);
-  // Look up to 3 places before the lower bound. We have to do this to catch
-  // cases like Sange vs. Sange & Yasha - if the input is like "Sange 0/...",
-  // then we'll see Sange & Yasha first, which we should skip.
+  // Look up to 3 places before the lower bound. We have to do this to catch cases like Sange vs. Sange & Yasha - if
+  // the input is like "Sange 0/...", then we'll see Sange & Yasha first, which we should skip.
   size_t lookback = 0;
   while (lookback < 4) {
     if (name_it != this->name_index.end() && desc.starts_with(name_it->first)) {
       break;
     } else if (name_it == this->name_index.begin()) {
-      throw runtime_error("no such item");
+      throw std::runtime_error("no such item");
     } else {
       name_it--;
       lookback++;
     }
   }
   if (lookback >= 4) {
-    throw runtime_error("item not found: " + desc);
+    throw std::runtime_error("item not found: " + desc);
   }
 
   desc = desc.substr(name_it->first.size());
@@ -610,16 +605,14 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
     desc = desc.substr(1);
   }
 
-  // Tech disks should have already been handled above, so we don't need to
-  // special-case 0302xxxx identifiers here.
+  // Tech disks should have already been handled above, so we don't need to special-case 0302xxxx identifiers here.
   uint32_t primary_identifier = name_it->second->primary_identifier;
   ret.data1[0] = (primary_identifier >> 24) & 0xFF;
   ret.data1[1] = (primary_identifier >> 16) & 0xFF;
   ret.data1[2] = (primary_identifier >> 8) & 0xFF;
 
   if (ret.data1[0] == 0x00) {
-    // Weapons: add special, grind and percentages (or name, if S-rank) and
-    // kill count if unsealable
+    // Weapons: add special, grind and percentages (or name, if S-rank) and kill count if unsealable
     ret.data1[4] = weapon_special | (is_wrapped ? 0x40 : 0x00) | (is_unidentified ? 0x80 : 0x00);
 
     bool kill_count_set = false;
@@ -642,7 +635,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
       } else {
         auto p_tokens = phosg::split(token, '/');
         if (p_tokens.size() > 5) {
-          throw runtime_error("invalid bonuses token");
+          throw std::runtime_error("invalid bonuses token");
         }
         uint8_t max_bonuses = this->item_parameter_table->is_unsealable_item(ret) ? 2 : 3;
         uint8_t bonus_index = 0;
@@ -652,7 +645,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
             continue;
           }
           if (bonus_index >= max_bonuses) {
-            throw runtime_error("weapon has too many bonuses");
+            throw std::runtime_error("weapon has too many bonuses");
           }
           ret.data1[6 + (2 * bonus_index)] = z + 1;
           ret.data1[7 + (2 * bonus_index)] = static_cast<uint8_t>(bonus_value);
@@ -667,7 +660,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
 
   } else if (ret.data1[0] == 0x01) {
     if (ret.data1[1] == 0x03) { // Unit
-      static const unordered_map<string, uint16_t> modifiers({
+      static const std::unordered_map<std::string, uint16_t> modifiers({
           {"--", 0xFFFC},
           {"-", 0xFFFE},
           {"", 0x0000},
@@ -703,7 +696,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
         if (token.empty()) {
           continue;
         } else if (!token.starts_with("+")) {
-          throw runtime_error("invalid armor/shield modifier");
+          throw std::runtime_error("invalid armor/shield modifier");
         }
         if (token.ends_with("def")) {
           ret.data1w[3] = static_cast<uint16_t>(stol(token.substr(1, token.size() - 4), nullptr, 10));
@@ -726,18 +719,10 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
       } else if (token.starts_with("pb:")) { // Photon blasts
         auto pb_tokens = phosg::split(token.substr(3), ',');
         if (pb_tokens.size() > 3) {
-          throw runtime_error("too many photon blasts specified");
+          throw std::runtime_error("too many photon blasts specified");
         }
-        static const unordered_map<string, uint8_t> name_to_pb_num({
-            {"f", 0},
-            {"e", 1},
-            {"g", 2},
-            {"p", 3},
-            {"l", 4},
-            {"m", 5},
-            {"my", 5},
-            {"m&y", 5},
-        });
+        static const std::unordered_map<std::string, uint8_t> name_to_pb_num(
+            {{"f", 0}, {"e", 1}, {"g", 2}, {"p", 3}, {"l", 4}, {"m", 5}, {"my", 5}, {"m&y", 5}});
         for (const auto& pb_token : pb_tokens) {
           ret.add_mag_photon_blast(name_to_pb_num.at(pb_token));
         }
@@ -748,12 +733,12 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
       } else if (!token.empty() && isdigit(token[0])) { // Stats
         auto s_tokens = phosg::split(token, '/');
         if (s_tokens.size() != 4) {
-          throw runtime_error("incorrect stat count");
+          throw std::runtime_error("incorrect stat count");
         }
         for (size_t z = 0; z < 4; z++) {
           auto n_tokens = phosg::split(s_tokens[z], '.');
           if (n_tokens.size() == 0 || n_tokens.size() > 2) {
-            throw logic_error("incorrect stats argument format");
+            throw std::logic_error("incorrect stats argument format");
           } else if ((n_tokens.size() == 1) || (n_tokens[1].size() == 0)) {
             ret.data1w[z + 2] = stoul(n_tokens[0], nullptr, 10) * 100;
           } else if (n_tokens[1].size() == 1) {
@@ -761,7 +746,7 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
           } else if (n_tokens[1].size() == 2) {
             ret.data1w[z + 2] = stoul(n_tokens[0], nullptr, 10) * 100 + stoul(n_tokens[1], nullptr, 10);
           } else {
-            throw runtime_error("incorrect stat format");
+            throw std::runtime_error("incorrect stat format");
           }
         }
         ret.data1[2] = ret.compute_mag_level();
@@ -781,18 +766,18 @@ ItemData ItemNameIndex::parse_item_description_phase(const std::string& descript
         ret.data1[5] = 1;
       }
     } else if (!desc.empty()) {
-      throw runtime_error("item cannot be stacked");
+      throw std::runtime_error("item cannot be stacked");
     }
 
     if (is_wrapped) {
       if (ret.is_stackable(*this->limits)) {
-        throw runtime_error("stackable items cannot be wrapped");
+        throw std::runtime_error("stackable items cannot be wrapped");
       } else {
         ret.data1[3] |= 0x40;
       }
     }
   } else {
-    throw logic_error("invalid item class");
+    throw std::logic_error("invalid item class");
   }
 
   return ret;
@@ -802,34 +787,50 @@ void ItemNameIndex::print_table(FILE* stream) const {
   auto pmt = this->item_parameter_table;
 
   phosg::fwrite_fmt(stream, "WEAPONS\n");
-  phosg::fwrite_fmt(stream, "  CODE   => ---ID--- TYPE SKIN POINTS FLAG ATPLO ATPHI ATPRQ MSTRQ ATARQ -MST- GND PH SP ATA SB(S1:AMT1,S2:AMT2) PJ 1X 1Y 2X 2Y CL --A1-- A4 A5 TB BF V1 ST* USL ---DIVISOR--- NAME\n");
-  for (size_t data1_1 = 0; data1_1 < pmt->num_weapon_classes; data1_1++) {
-    uint8_t v1_replacement = pmt->get_weapon_v1_replacement(data1_1);
+  phosg::fwrite_fmt(stream, "  CODE   => ---ID--- TYPE SKIN POINTS FLAG ATPLO ATPHI ATPRQ MSTRQ ATARQ -MST- GND PH SP ATA SB(S1:AMT1,S2:AMT2) PJ 1X 1Y 2X 2Y CR --A1-- A4 A5 TB(TN:FL:AMOUNT, ...                     ) BF CL ST* USL ---DIVISOR--- NAME\n");
+  for (size_t data1_1 = 0; data1_1 < pmt->num_weapon_classes(); data1_1++) {
+    uint8_t weapon_class = pmt->get_weapon_kind(data1_1);
     float sale_divisor = pmt->get_sale_divisor(0x00, data1_1);
-    string divisor_str = std::format("{:g}", sale_divisor);
+    std::string divisor_str = std::format("{:g}", sale_divisor);
     divisor_str.resize(13, ' ');
 
     size_t data1_2_limit = pmt->num_weapons_in_class(data1_1);
     for (size_t data1_2 = 0; data1_2 < data1_2_limit; data1_2++) {
       const auto& w = pmt->get_weapon(data1_1, data1_2);
-      uint8_t stars = pmt->get_item_stars(w.base.id);
+      uint8_t stars = pmt->get_item_stars(w.id);
       bool is_unsealable = pmt->is_unsealable_item(0x00, data1_1, data1_2);
 
       ItemData item;
       item.data1[0] = 0x00;
       item.data1[1] = data1_1;
       item.data1[2] = data1_2;
-      string name = this->describe_item(item);
+      std::string name = this->describe_item(item);
 
-      auto& stat_boost = pmt->get_stat_boost(w.stat_boost_entry_index);
-      phosg::fwrite_fmt(stream, "  00{:02X}{:02X} => {:08X} {:04X} {:04X} {:6} {:04X} {:5} {:5} {:5} {:5} {:5} {:5} {:3} {:02X} {:02X} {:3} {:02X}({:02X}:{:04X},{:02X}:{:04X}) {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}{:02X}{:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:2}* {} {} {}\n",
+      const auto& stat_boost = pmt->get_stat_boost(w.stat_boost_entry_index);
+
+      std::string tech_boost_str;
+      if (w.tech_boost_entry_index < pmt->num_tech_boosts()) {
+        const auto& tech_boost = pmt->get_tech_boost(w.tech_boost_entry_index);
+        tech_boost_str = std::format("({:02X}:{:02X}:{:g},{:02X}:{:02X}:{:g},{:02X}:{:02X}:{:g})",
+            tech_boost.tech_num1, tech_boost.flags1, tech_boost.amount1, tech_boost.tech_num2, tech_boost.flags2,
+            tech_boost.amount2, tech_boost.tech_num3, tech_boost.flags3, tech_boost.amount3);
+      }
+      tech_boost_str.resize(40, ' ');
+
+      phosg::fwrite_fmt(stream,
+          // CODE           =>     ID   TYPE   SKIN  PTS   FLAG ATP- ATP+ ATPR MSTR ATAR  MST  GND     PH     SP  ATA
+          "  00{:02X}{:02X} => {:08X} {:04X} {:04X} {:6} {:04X} {:5} {:5} {:5} {:5} {:5} {:5} {:3} {:02X} {:02X} {:3} "
+          //   SB(    S1:AMT1  ,    S2:AMT2  )     PJ     1X     1Y     2X     2Y     CR --------A1--------     A4
+          "{:02X}({:02X}:{:04X},{:02X}:{:04X}) {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}{:02X}{:02X} {:02X} "
+          //   A5     TB(    TN:    FL: AMT,    TN:    FL: AMT,    TN:    FL: AMT)     BF     CL   ST* US DV NAME\n"
+          "{:02X} {:02X}{} {:02X} {:02X} {:2}* {} {} {}\n",
           data1_1,
           data1_2,
-          w.base.id,
-          w.base.type,
-          w.base.skin,
-          w.base.team_points,
-          w.class_flags,
+          w.id,
+          w.type,
+          w.skin,
+          w.team_points,
+          w.usability_flags,
           w.atp_min,
           w.atp_max,
           w.atp_required,
@@ -841,10 +842,10 @@ void ItemNameIndex::print_table(FILE* stream) const {
           w.special,
           w.ata,
           w.stat_boost_entry_index,
-          stat_boost.stats[0],
-          stat_boost.amounts[0],
-          stat_boost.stats[1],
-          stat_boost.amounts[1],
+          stat_boost.stat1,
+          stat_boost.amount1,
+          stat_boost.stat2,
+          stat_boost.amount2,
           w.projectile,
           w.trail1_x,
           w.trail1_y,
@@ -856,9 +857,10 @@ void ItemNameIndex::print_table(FILE* stream) const {
           w.unknown_a1[2],
           w.unknown_a4,
           w.unknown_a5,
-          w.tech_boost,
+          w.tech_boost_entry_index,
+          tech_boost_str,
           w.behavior_flags,
-          v1_replacement,
+          weapon_class,
           stars,
           is_unsealable ? "YES" : " no",
           divisor_str,
@@ -867,36 +869,46 @@ void ItemNameIndex::print_table(FILE* stream) const {
   }
 
   phosg::fwrite_fmt(stream, "ARMORS\n");
-  phosg::fwrite_fmt(stream, "  CODE   => ---ID--- TYPE SKIN POINTS -DFP- -EVP- BP BE FLAG LVL EFR ETH EIC EDK ELT DFR EVR SB(S1:AMT1,S2:AMT2) TB FT A4 ST* ---DIVISOR--- NAME\n");
+  phosg::fwrite_fmt(stream, "  CODE   => ---ID--- TYPE SKIN POINTS -DFP- -EVP- BP BE FLAG LVL EFR ETH EIC EDK ELT DFR EVR SB(S1:AMT1,S2:AMT2) TB(TN:FL:AMOUNT, ...                     ) FT A4 ST* ---DIVISOR--- NAME\n");
   for (size_t data1_1 = 1; data1_1 < 3; data1_1++) {
     float sale_divisor = pmt->get_sale_divisor(0x01, data1_1);
-    string divisor_str = std::format("{:g}", sale_divisor);
+    std::string divisor_str = std::format("{:g}", sale_divisor);
     divisor_str.resize(13, ' ');
 
     size_t data1_2_limit = pmt->num_armors_or_shields_in_class(data1_1);
     for (size_t data1_2 = 0; data1_2 < data1_2_limit; data1_2++) {
       const auto& a = pmt->get_armor_or_shield(data1_1, data1_2);
-      uint8_t stars = pmt->get_item_stars(a.base.id);
+      uint8_t stars = pmt->get_item_stars(a.id);
 
       ItemData item;
       item.data1[0] = 0x01;
       item.data1[1] = data1_1;
       item.data1[2] = data1_2;
-      string name = this->describe_item(item);
+      std::string name = this->describe_item(item);
 
       auto& stat_boost = pmt->get_stat_boost(a.stat_boost_entry_index);
-      phosg::fwrite_fmt(stream, "  01{:02X}{:02X} => {:08X} {:04X} {:04X} {:6} {:5} {:5} {:02X} {:02X} {:04X} {:3} {:3} {:3} {:3} {:3} {:3} {:3} {:3} {:02X}({:02X}:{:04X},{:02X}:{:04X}) {:02X} {:02X} {:02X} {:2}* {} {}\n",
+
+      std::string tech_boost_str;
+      if (a.tech_boost_entry_index < pmt->num_tech_boosts()) {
+        const auto& tech_boost = pmt->get_tech_boost(a.tech_boost_entry_index);
+        tech_boost_str = std::format("({:02X}:{:02X}:{:g},{:02X}:{:02X}:{:g},{:02X}:{:02X}:{:g})",
+            tech_boost.tech_num1, tech_boost.flags1, tech_boost.amount1, tech_boost.tech_num2, tech_boost.flags2,
+            tech_boost.amount2, tech_boost.tech_num3, tech_boost.flags3, tech_boost.amount3);
+      }
+      tech_boost_str.resize(40, ' ');
+
+      phosg::fwrite_fmt(stream, "  01{:02X}{:02X} => {:08X} {:04X} {:04X} {:6} {:5} {:5} {:02X} {:02X} {:04X} {:3} {:3} {:3} {:3} {:3} {:3} {:3} {:3} {:02X}({:02X}:{:04X},{:02X}:{:04X}) {:02X}{} {:02X} {:02X} {:2}* {} {}\n",
           data1_1,
           data1_2,
-          a.base.id,
-          a.base.type,
-          a.base.skin,
-          a.base.team_points,
+          a.id,
+          a.type,
+          a.skin,
+          a.team_points,
           a.dfp,
           a.evp,
           a.block_particle,
           a.block_effect,
-          a.class_flags,
+          a.usability_flags,
           static_cast<uint8_t>(a.required_level + 1),
           a.efr,
           a.eth,
@@ -906,11 +918,12 @@ void ItemNameIndex::print_table(FILE* stream) const {
           a.dfp_range,
           a.evp_range,
           a.stat_boost_entry_index,
-          stat_boost.stats[0],
-          stat_boost.amounts[0],
-          stat_boost.stats[1],
-          stat_boost.amounts[1],
-          a.tech_boost,
+          stat_boost.stat1,
+          stat_boost.amount1,
+          stat_boost.stat2,
+          stat_boost.amount2,
+          a.tech_boost_entry_index,
+          tech_boost_str,
           a.flags_type,
           a.unknown_a4,
           stars,
@@ -923,26 +936,26 @@ void ItemNameIndex::print_table(FILE* stream) const {
   phosg::fwrite_fmt(stream, "  CODE   => ---ID--- TYPE SKIN POINTS STAT COUNT ST-MOD ST* ---DIVISOR--- NAME\n");
   {
     float sale_divisor = pmt->get_sale_divisor(0x01, 0x03);
-    string divisor_str = std::format("{:g}", sale_divisor);
+    std::string divisor_str = std::format("{:g}", sale_divisor);
     divisor_str.resize(13, ' ');
 
     size_t data1_2_limit = pmt->num_units();
     for (size_t data1_2 = 0; data1_2 < data1_2_limit; data1_2++) {
       const auto& u = pmt->get_unit(data1_2);
-      uint8_t stars = pmt->get_item_stars(u.base.id);
+      uint8_t stars = pmt->get_item_stars(u.id);
 
       ItemData item;
       item.data1[0] = 0x01;
       item.data1[1] = 0x03;
       item.data1[2] = data1_2;
-      string name = this->describe_item(item);
+      std::string name = this->describe_item(item);
 
       phosg::fwrite_fmt(stream, "  0103{:02X} => {:08X} {:04X} {:04X} {:6} {:04X} {:5} {:6} {:2}* {} {}\n",
           data1_2,
-          u.base.id,
-          u.base.type,
-          u.base.skin,
-          u.base.team_points,
+          u.id,
+          u.type,
+          u.skin,
+          u.team_points,
           u.stat,
           u.stat_amount,
           u.modifier_amount,
@@ -960,21 +973,21 @@ void ItemNameIndex::print_table(FILE* stream) const {
       const auto& m = pmt->get_mag(data1_1);
 
       float sale_divisor = pmt->get_sale_divisor(0x02, data1_1);
-      string divisor_str = std::format("{:g}", sale_divisor);
+      std::string divisor_str = std::format("{:g}", sale_divisor);
       divisor_str.resize(13, ' ');
 
       ItemData item;
       item.data1[0] = 0x02;
       item.data1[1] = data1_1;
       item.data1[2] = 0x00;
-      string name = this->describe_item(item);
+      std::string name = this->describe_item(item);
 
       phosg::fwrite_fmt(stream, "  02{:02X}00 => {:08X} {:04X} {:04X} {:6} {:04X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:04X} {} {}\n",
           data1_1,
-          m.base.id,
-          m.base.type,
-          m.base.skin,
-          m.base.team_points,
+          m.id,
+          m.type,
+          m.skin,
+          m.team_points,
           m.feed_table,
           m.photon_blast,
           m.activation,
@@ -986,7 +999,7 @@ void ItemNameIndex::print_table(FILE* stream) const {
           m.on_low_hp_flag,
           m.on_death_flag,
           m.on_boss_flag,
-          m.class_flags,
+          m.usability_flags,
           divisor_str,
           name);
     }
@@ -994,9 +1007,9 @@ void ItemNameIndex::print_table(FILE* stream) const {
 
   phosg::fwrite_fmt(stream, "TOOLS\n");
   phosg::fwrite_fmt(stream, "  CODE   => ---ID--- TYPE SKIN POINTS COUNT TECH -COST- ITEMFLAG ---DIVISOR--- NAME\n");
-  for (size_t data1_1 = 0; data1_1 < pmt->num_tool_classes; data1_1++) {
+  for (size_t data1_1 = 0; data1_1 < pmt->num_tool_classes(); data1_1++) {
     float sale_divisor = pmt->get_sale_divisor(0x03, data1_1);
-    string divisor_str = std::format("{:g}", sale_divisor);
+    std::string divisor_str = std::format("{:g}", sale_divisor);
     divisor_str.resize(13, ' ');
 
     size_t data1_2_limit = pmt->num_tools_in_class(data1_1);
@@ -1008,15 +1021,15 @@ void ItemNameIndex::print_table(FILE* stream) const {
       item.data1[1] = data1_1;
       item.data1[(data1_1 == 0x02) ? 4 : 2] = data1_2;
       item.set_tool_item_amount(*this->limits, 1);
-      string name = this->describe_item(item);
+      std::string name = this->describe_item(item);
 
       phosg::fwrite_fmt(stream, "  03{:02X}{:02X} => {:08X} {:04X} {:04X} {:6} {:5} {:04X} {:6} {:08X} {} {}\n",
           data1_1,
           data1_2,
-          t.base.id,
-          t.base.type,
-          t.base.skin,
-          t.base.team_points,
+          t.id,
+          t.type,
+          t.skin,
+          t.team_points,
           t.amount,
           t.tech,
           t.cost,
@@ -1044,8 +1057,7 @@ void ItemNameIndex::print_table(FILE* stream) const {
   phosg::fwrite_fmt(stream, "MAG FEED TABLES\n");
   for (size_t table_index = 0; table_index < 8; table_index++) {
     static const char* names[11] = {
-        "Monomate", "Dimate", "Trimate", "Monofluid",
-        "Difluid", "Trifluid", "Antidote", "Antiparalysis",
+        "Monomate", "Dimate", "Trimate", "Monofluid", "Difluid", "Trifluid", "Antidote", "Antiparalysis",
         "Sol Atomizer", "Moon Atomizer", "Star Atomizer"};
     phosg::fwrite_fmt(stream, "  TABLE {:02X}         => -DEF -POW -DEX MIND -IQ- SYNC\n", table_index);
     for (size_t which = 0; which < 11; which++) {
@@ -1056,23 +1068,23 @@ void ItemNameIndex::print_table(FILE* stream) const {
   }
 
   phosg::fwrite_fmt(stream, "SPECIAL DEFINITIONS\n");
-  phosg::fwrite_fmt(stream, "  SPECIAL => TYPE COUNT ST* NAME\n");
-  for (size_t index = 0; index < pmt->num_specials; index++) {
+  phosg::fwrite_fmt(stream, "  SP => TYPE COUNT ST* NAME\n");
+  for (size_t index = 0; index < pmt->num_specials(); index++) {
     const auto& sp = pmt->get_special(index);
     uint8_t stars = pmt->get_special_stars(index);
     const char* name = "";
     if (index) {
       try {
         name = name_for_weapon_special.at(index);
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
       }
     }
-    phosg::fwrite_fmt(stream, "       {:02X} => {:04X} {:5} {:2}* {}\n", index, sp.type, sp.amount, stars, name);
+    phosg::fwrite_fmt(stream, "  {:02X} => {:04X} {:5} {:2}* {}\n", index, sp.type, sp.amount, stars, name);
   }
 
   phosg::fwrite_fmt(stream, "ITEM COMBINATIONS\n");
   phosg::fwrite_fmt(stream, "  ---USE + -EQUIP => RESULT MLV GND LVL CLS\n");
-  for (const auto& combo_list_it : pmt->get_all_item_combinations()) {
+  for (const auto& combo_list_it : pmt->item_combinations_index()) {
     for (const auto& combo : combo_list_it.second) {
       phosg::fwrite_fmt(stream, "  {:02X}{:02X}{:02X} + {:02X}{:02X}{:02X} => {:02X}{:02X}{:02X}",
           combo.used_item[0], combo.used_item[1], combo.used_item[2],
@@ -1111,5 +1123,158 @@ void ItemNameIndex::print_table(FILE* stream) const {
       phosg::fwrite_fmt(stream, "  {:02X}{:02X}{:02X} => {:3}\n",
           event_item.item[0], event_item.item[1], event_item.item[2], event_item.probability);
     }
+  }
+
+  phosg::fwrite_fmt(stream, "PHOTON COLORS\n");
+  phosg::fwrite_fmt(stream, "  ## => ---A1--- (A2) (A3)\n");
+  for (size_t z = 0; z < pmt->num_photon_colors(); z++) {
+    const auto& pc = pmt->get_photon_color(z);
+    phosg::fwrite_fmt(stream, "  {:02X} => {:08X} ({:g}, {:g}, {:g}, {:g}) ({:g}, {:g}, {:g}, {:g})\n",
+        z, pc.unknown_a1, pc.unknown_a2.x, pc.unknown_a2.y, pc.unknown_a2.z, pc.unknown_a2.t,
+        pc.unknown_a3.x, pc.unknown_a3.y, pc.unknown_a3.z, pc.unknown_a3.t);
+  }
+
+  phosg::fwrite_fmt(stream, "WEAPON RANGES\n");
+  phosg::fwrite_fmt(stream, "  ## => ---A3--- ---A4--- ---A5--- (A1) (A2)\n");
+  for (size_t z = 0; z < pmt->num_weapon_ranges(); z++) {
+    const auto& wr = pmt->get_weapon_range(z);
+    phosg::fwrite_fmt(stream, "  {:02X} => {:08X} {:08X} {:08X} ({:g}) ({:g})\n",
+        z, wr.unknown_a3, wr.unknown_a4, wr.unknown_a5, wr.unknown_a1, wr.unknown_a2);
+  }
+
+  phosg::fwrite_fmt(stream, "SALE DIVISORS\n");
+  phosg::fwrite_fmt(stream, "  ARMOR = {:g}\n", pmt->get_sale_divisor(1, 1));
+  phosg::fwrite_fmt(stream, "  SHIELD = {:g}\n", pmt->get_sale_divisor(1, 2));
+  phosg::fwrite_fmt(stream, "  UNIT = {:g}\n", pmt->get_sale_divisor(1, 3));
+  phosg::fwrite_fmt(stream, "  MAG = {:g}\n", pmt->get_sale_divisor(2, 0));
+
+  auto write_data_string = [&](const std::string& data, size_t addr = 0) -> void {
+    if (data.empty()) {
+      phosg::fwrite_fmt(stream, "  (no data)\n");
+    } else {
+      auto data_str = phosg::format_data(data, addr);
+      phosg::strip_trailing_whitespace(data_str);
+      phosg::fwrite_fmt(stream, "  {}\n", phosg::str_replace_all(data_str, "\n", "\n  "));
+    }
+  };
+
+  phosg::fwrite_fmt(stream, "STAR VALUES\n");
+  write_data_string(pmt->get_star_value_table(), pmt->get_star_value_index_range().first);
+
+  phosg::fwrite_fmt(stream, "UNKNOWN_A1\n");
+  write_data_string(pmt->get_unknown_a1());
+
+  phosg::fwrite_fmt(stream, "WEAPON EFFECTS\n");
+  phosg::fwrite_fmt(stream, "  ## => -SOUND1- -VALUE1- -SOUND2- -VALUE2- ----------------A5---------------\n");
+  for (size_t z = 0; z < pmt->num_weapon_effects(); z++) {
+    const auto& we = pmt->get_weapon_effect(z);
+    auto a5_str = phosg::format_data_string(we.unknown_a5.data(), we.unknown_a5.size());
+    phosg::fwrite_fmt(stream, "  {:02X} => {:08X} {:08X} {:08X} {:08X} {}\n",
+        z, we.sound_id1, we.eff_value1, we.sound_id2, we.eff_value2, a5_str);
+  }
+
+  phosg::fwrite_fmt(stream, "WEAPON STAT BOOST INDEX TABLE\n");
+  write_data_string(pmt->get_weapon_stat_boost_index_table());
+
+  phosg::fwrite_fmt(stream, "ARMOR STAT BOOST INDEX TABLE\n");
+  write_data_string(pmt->get_armor_stat_boost_index_table());
+
+  phosg::fwrite_fmt(stream, "SHIELD STAT BOOST INDEX TABLE\n");
+  write_data_string(pmt->get_shield_stat_boost_index_table());
+
+  phosg::fwrite_fmt(stream, "STAT BOOSTS\n");
+  phosg::fwrite_fmt(stream, "  ## => BOOSTS\n");
+  for (size_t z = 0; z < pmt->num_stat_boosts(); z++) {
+    const auto& sb = pmt->get_stat_boost(z);
+    static constexpr std::array<const char*, 0x10> stat_names{
+        "ATP+", "ATA+", "EVP+", "DFP+", "MST+", "HP+", "LCK+", "ALL+",
+        "ATP-", "ATA-", "EVP-", "DFP-", "MST-", "HP-", "LCK-", "ALL-"};
+    std::string s;
+    if (sb.stat1 > 0x10) {
+      s = std::format("[{:02X}:{:04X}]", sb.stat1, sb.amount1);
+    } else if (sb.stat1 > 0) {
+      s = std::format("{}{}", stat_names[sb.stat1 - 1], sb.amount1);
+    }
+    if (sb.stat2) {
+      if (!s.empty()) {
+        s += ", ";
+      }
+      if (sb.stat2 > 0x10) {
+        s += std::format("[{:02X}:{:04X}]", sb.stat2, sb.amount2);
+      } else if (sb.stat2 > 0) {
+        s += std::format("{}{}", stat_names[sb.stat2 - 1], sb.amount2);
+      }
+    }
+    if (s.empty()) {
+      s = "(none)";
+    }
+    phosg::fwrite_fmt(stream, "  {:02X} => {}\n", z, s);
+  }
+
+  phosg::fwrite_fmt(stream, "SHIELD EFFECTS\n");
+  phosg::fwrite_fmt(stream, "  ## => -SOUND1- ---A1---\n");
+  for (size_t z = 0; z < pmt->num_shield_effects(); z++) {
+    const auto& se = pmt->get_shield_effect(z);
+    phosg::fwrite_fmt(stream, "  {:02X} => {:08X} {:08X}\n", z, se.sound_id, se.unknown_a1);
+  }
+
+  phosg::fwrite_fmt(stream, "SOUND REMAPS\n");
+  phosg::fwrite_fmt(stream, "  -SOUND1- => RT:[...] CC:[...]\n");
+  for (const auto& remap : pmt->get_all_sound_remaps()) {
+    std::string rt_str;
+    for (uint32_t rt_sound_id : remap.by_rt_index) {
+      if (!rt_str.empty()) {
+        rt_str += ",";
+      }
+      rt_str += std::format("{:08X}", rt_sound_id);
+    }
+    std::string cc_str;
+    for (uint32_t cc_sound_id : remap.by_char_class) {
+      if (!cc_str.empty()) {
+        cc_str += ",";
+      }
+      cc_str += std::format("{:08X}", cc_sound_id);
+    }
+    phosg::fwrite_fmt(stream, "  {:08X} => RT:[{}] CC:[{}]\n", remap.sound_id, rt_str, cc_str);
+  }
+
+  phosg::fwrite_fmt(stream, "TECH BOOSTS\n");
+  phosg::fwrite_fmt(stream, "  ## => BOOSTS\n");
+  for (size_t z = 0; z < pmt->num_tech_boosts(); z++) {
+    const auto& tb = pmt->get_tech_boost(z);
+    std::string s;
+    if (tb.amount1) {
+      s += std::format("{:02X}:{:02X}:{:g}", tb.tech_num1, tb.flags1, tb.amount1);
+    }
+    if (tb.amount2) {
+      s += std::format("{:02X}:{:02X}:{:g}", tb.tech_num2, tb.flags2, tb.amount2);
+    }
+    if (tb.amount3) {
+      s += std::format("{:02X}:{:02X}:{:g}", tb.tech_num3, tb.flags3, tb.amount3);
+    }
+    phosg::fwrite_fmt(stream, "  {:02X} => {}\n", z, s);
+  }
+
+  phosg::fwrite_fmt(stream, "UNSEALABLE ITEMS\n");
+  phosg::fwrite_fmt(stream, "  -ITEM- NAME\n");
+  std::vector<uint32_t> unsealable_items;
+  for (uint32_t item_code : pmt->all_unsealable_items()) {
+    unsealable_items.emplace_back(item_code);
+  }
+  std::sort(unsealable_items.begin(), unsealable_items.end());
+  for (uint32_t item_code : unsealable_items) {
+    ItemData item;
+    item.data1[0] = item_code >> 16;
+    item.data1[1] = item_code >> 8;
+    item.data1[2] = item_code;
+    phosg::fwrite_fmt(stream, "  {:06X} {}\n", item_code, this->describe_item(item));
+  }
+
+  phosg::fwrite_fmt(stream, "RANGED SPECIALS\n");
+  phosg::fwrite_fmt(stream, "  ## => 11 12 WR A1\n");
+  for (size_t z = 0; z < pmt->num_ranged_specials(); z++) {
+    const auto& rs = pmt->get_ranged_special(z);
+    phosg::fwrite_fmt(stream, "  {:02X} => {:02X} {:02X} {:02X} {:02X}\n",
+        z, rs.data1_1, rs.data1_2, rs.weapon_range_index, rs.unknown_a1);
   }
 }

@@ -6,8 +6,6 @@
 
 #include "Client.hh"
 
-using namespace std;
-
 template <>
 const char* phosg::name_for_enum<Version>(Version v) {
   switch (v) {
@@ -40,7 +38,7 @@ const char* phosg::name_for_enum<Version>(Version v) {
     case Version::BB_V4:
       return "BB_V4";
     default:
-      throw runtime_error("unknown version");
+      throw std::runtime_error("unknown version");
   }
 }
 
@@ -75,7 +73,7 @@ Version phosg::enum_for_name<Version>(const char* name) {
   } else if (!strcmp(name, "BB_V4") || !strcasecmp(name, "bb")) {
     return Version::BB_V4;
   } else {
-    throw invalid_argument("incorrect version name");
+    throw std::invalid_argument("incorrect version name");
   }
 }
 
@@ -91,7 +89,7 @@ const char* phosg::name_for_enum<ServerBehavior>(ServerBehavior behavior) {
     case ServerBehavior::PATCH_SERVER_BB:
       return "patch_server_bb";
   }
-  throw logic_error("invalid server behavior");
+  throw std::logic_error("invalid server behavior");
 }
 
 template <>
@@ -105,7 +103,7 @@ ServerBehavior phosg::enum_for_name<ServerBehavior>(const char* name) {
   } else if (!strcasecmp(name, "patch_server_bb") || !strcasecmp(name, "patch_bb")) {
     return ServerBehavior::PATCH_SERVER_BB;
   } else {
-    throw invalid_argument(std::format("incorrect server behavior name: {}", name));
+    throw std::invalid_argument(std::format("incorrect server behavior name: {}", name));
   }
 }
 
@@ -138,11 +136,9 @@ uint32_t default_sub_version_for_version(Version version) {
 }
 
 uint32_t default_specific_version_for_version(Version version, int64_t sub_version) {
-  // For versions that don't support send_function_call by default, we need
-  // to set the specific_version based on sub_version. Fortunately, all
-  // versions that share sub_version values also support send_function_call,
-  // so for those versions we get the specific_version later by sending the
-  // VersionDetectDC, VersionDetectGC, or VersionDetectXB call.
+  // For versions that don't support send_function_call by default, we need to set the specific_version based on
+  // sub_version. Fortunately, all versions that share sub_version values also support send_function_call, so for those
+  // versions we get the specific_version later by sending VersionDetect.
   switch (version) {
     case Version::DC_NTE:
       return SPECIFIC_VERSION_DC_NTE; // 1OJ1 (NTE)
@@ -151,7 +147,7 @@ uint32_t default_specific_version_for_version(Version version, int64_t sub_versi
     case Version::DC_V1:
       switch (sub_version) {
         case 0x20:
-          return SPECIFIC_VERSION_DC_V1_JP; // 1OJF (1OJ1 and 1OJ2 use 0x20 as well, but are detected without using sub_version)
+          return SPECIFIC_VERSION_DC_V1_JP; // 1OJF (1OJ1 and 1OJ2 use 0x20 also, but are detected without sub_version)
         case 0x21:
           return SPECIFIC_VERSION_DC_V1_US; // 1OEF
         case 0x22:
@@ -161,7 +157,7 @@ uint32_t default_specific_version_for_version(Version version, int64_t sub_versi
           return SPECIFIC_VERSION_DC_V1_INDETERMINATE;
       }
     case Version::DC_V2:
-      return SPECIFIC_VERSION_DC_V2_INDETERMINATE; // 2___; need to send VersionDetectDC
+      return SPECIFIC_VERSION_DC_V2_INDETERMINATE; // 2___; need to send VersionDetect
     case Version::PC_NTE:
       return SPECIFIC_VERSION_PC_V2_NTE; // 2OJT
     case Version::PC_V2:
@@ -186,9 +182,9 @@ uint32_t default_specific_version_for_version(Version version, int64_t sub_versi
         case 0x30: // GC Ep1&2 GameJam demo, GC Ep1&2 Trial Edition, GC Ep1&2 JP v1.2, at least one version of PSO XB
         case 0x31: // GC Ep1&2 US v1.0, GC US v1.1, XB US
         default:
-          return SPECIFIC_VERSION_GC_V3_INDETERMINATE; // 3O__; need to send VersionDetectGC
+          return SPECIFIC_VERSION_GC_V3_INDETERMINATE; // 3O__; need to send VersionDetect
       }
-      throw logic_error("this should be impossible");
+      throw std::logic_error("this should be impossible");
     case Version::GC_EP3_NTE:
       return SPECIFIC_VERSION_GC_EP3_NTE; // 3SJT
     case Version::GC_EP3:
@@ -201,10 +197,10 @@ uint32_t default_specific_version_for_version(Version version, int64_t sub_versi
         case -1: // Initial check (before sub_version recognition)
         case 0x40: // GC Ep3 trial and GC Ep3 JP
         default:
-          return SPECIFIC_VERSION_GC_EP3_INDETERMINATE; // 3SJ_; need to send VersionDetectGC
+          return SPECIFIC_VERSION_GC_EP3_INDETERMINATE; // 3SJ_; need to send VersionDetect
       }
     case Version::XB_V3:
-      return SPECIFIC_VERSION_XB_V3_INDETERMINATE; // 4O__; need to send VersionDetectXB
+      return SPECIFIC_VERSION_XB_V3_INDETERMINATE; // 4O__; need to send VersionDetect
     case Version::BB_V4:
       return SPECIFIC_VERSION_BB_V4_INDETERMINATE; // 5___; we should be able to determine version from initial login
     default:
@@ -246,8 +242,25 @@ bool specific_version_is_bb(uint32_t specific_version) {
   return ((specific_version & 0xFF000000) == 0x35000000);
 }
 
-string str_for_specific_version(uint32_t specific_version) {
-  string ret;
+uint32_t specific_version_for_str(const std::string& s) {
+  switch (s.size()) {
+    case 0:
+      return 0;
+    case 1:
+      return (s[0] << 24);
+    case 2:
+      return (s[0] << 24) | (s[1] << 16);
+    case 3:
+      return (s[0] << 24) | (s[1] << 16) | (s[2] << 8);
+    case 4:
+      return (s[0] << 24) | (s[1] << 16) | (s[2] << 8) | s[3];
+    default:
+      throw std::runtime_error("Invalid specific_version string");
+  }
+}
+
+std::string str_for_specific_version(uint32_t specific_version) {
+  std::string ret;
   for (size_t z = 0; z < 4; z++) {
     char ch = specific_version >> (24 - (z << 3));
     ret.push_back(isalnum(ch) ? ch : '_');
@@ -286,7 +299,7 @@ const char* file_path_token_for_version(Version version) {
     case Version::BB_V4:
       return "bb-v4";
     default:
-      throw runtime_error("invalid game version");
+      throw std::runtime_error("invalid game version");
   }
 }
 
@@ -301,8 +314,7 @@ uint64_t generate_random_hardware_id(Version version) {
     case Version::PC_V2:
       return 0x0000FFFFFFFFFFFF;
     case Version::GC_NTE:
-      // On GC NTE, the low byte is uninitialized memory from the TProtocol
-      // constructor's stack
+      // On GC NTE, the low byte is uninitialized memory from the TProtocol constructor's stack
       return phosg::random_object<uint8_t>();
     case Version::GC_V3:
     case Version::GC_EP3_NTE:
@@ -311,6 +323,6 @@ uint64_t generate_random_hardware_id(Version version) {
     case Version::BB_V4:
       return 0;
     default:
-      throw runtime_error("invalid game version");
+      throw std::runtime_error("invalid game version");
   }
 }

@@ -6,11 +6,10 @@
 #include "Account.hh"
 #include "AsyncUtils.hh"
 #include "Channel.hh"
+#include "ClientFunctionIndex.hh"
 #include "CommandFormats.hh"
 #include "Episode3/BattleRecord.hh"
 #include "Episode3/Tournament.hh"
-#include "FileContentsCache.hh"
-#include "FunctionCompiler.hh"
 #include "PSOEncryption.hh"
 #include "PSOProtocol.hh"
 #include "PatchFileIndex.hh"
@@ -27,7 +26,7 @@ struct Lobby;
 class Parsed6x70Data;
 
 struct GetPlayerInfoResult {
-  // Exactly one of the following two shared_ptrs is not null
+  // Exactly one of the following two std::shared_ptrs is not null
   std::shared_ptr<PSOBBCharacterFile> character;
   std::shared_ptr<PSOGCEp3CharacterFile::Character> ep3_character;
   bool is_full_info; // True if the client sent 30; false if it was 61 or 98
@@ -78,6 +77,7 @@ public:
     INFINITE_HP_ENABLED                        = 0x0000000040000000,
     INFINITE_TP_ENABLED                        = 0x0000000080000000,
     FAST_KILLS_ENABLED                         = 0x0000000100000000,
+    ALL_RARES_ENABLED                          = 0x0000100000000000,
     DEBUG_ENABLED                              = 0x0000000200000000,
     ITEM_DROP_NOTIFICATIONS_1                  = 0x0000000400000000,
     ITEM_DROP_NOTIFICATIONS_2                  = 0x0000000800000000,
@@ -155,7 +155,7 @@ public:
   std::weak_ptr<Lobby> lobby;
   uint8_t lobby_client_id = 0;
   uint8_t lobby_arrow_color = 0;
-  int64_t preferred_lobby_id = -1; // <0 = no preference
+  int64_t preferred_lobby_id = -1; // <0 = none chosen
 
   asio::steady_timer save_game_data_timer;
   asio::steady_timer send_ping_timer;
@@ -187,10 +187,10 @@ public:
   };
   bool should_update_play_time;
   std::unordered_set<uint32_t> blocked_senders;
-  std::unique_ptr<PlayerDispDataDCPCV3> v1_v2_last_reported_disp;
+  std::unique_ptr<PlayerDispDataV123> v1_v2_last_reported_disp;
   std::shared_ptr<Parsed6x70Data> last_reported_6x70;
-  // These are null unless the client is within the trade sequence (D0-D4 or EE
-  // commands)
+  std::unordered_set<uint16_t> expected_game_state_sync_commands; // (command_num << 8) | target_client_id
+  // These are null unless the client is within the trade sequence (D0-D4 or EE commands)
   std::unique_ptr<PendingItemTrade> pending_item_trade;
   std::unique_ptr<PendingCardTrade> pending_card_trade;
   uint32_t telepipe_lobby_id = 0;
@@ -203,12 +203,10 @@ public:
   uint8_t schtserv_response_register = 0;
   uint32_t next_exp_value = 0;
   bool can_chat = true;
-  // NOTE: If you add any new optional promises here, make sure to also add
-  // them to cancel_pending_promises.
-  // NOTE: Entries in this queue can be nullptr; that represents a B2 command
-  // sent by the remote server during a proxy session. We can't just omit those
-  // from the queue entirely, because if we did, we could end up sending the
-  // wrong B3 response back.
+  // NOTE: If you add any new optional promises here, make sure to also add them to cancel_pending_promises.
+  // NOTE: Entries in this queue can be nullptr; that represents a B2 command sent by the remote server during a proxy
+  // session. We can't just omit those from the queue entirely, because if we did, we could end up sending the wrong B3
+  // response back.
   std::deque<std::shared_ptr<AsyncPromise<C_ExecuteCodeResult_B3>>> function_call_response_queue;
   std::shared_ptr<AsyncPromise<GetPlayerInfoResult>> character_data_ready_promise;
   std::shared_ptr<AsyncPromise<void>> enable_save_promise;
@@ -216,10 +214,7 @@ public:
   // File loading state
   std::unordered_map<std::string, std::shared_ptr<const std::string>> sending_files;
 
-  Client(
-      std::shared_ptr<GameServer> server,
-      std::shared_ptr<Channel> channel,
-      ServerBehavior server_behavior);
+  Client(std::shared_ptr<GameServer> server, std::shared_ptr<Channel> channel, ServerBehavior server_behavior);
   ~Client();
 
   void update_channel_name();
@@ -257,8 +252,6 @@ public:
   void set_drop_notification_mode(ItemDropNotificationMode new_mode);
 
   void convert_account_to_temporary_if_nte();
-
-  void sync_config();
 
   std::shared_ptr<ServerState> require_server_state() const;
   std::shared_ptr<Lobby> require_lobby() const;
@@ -319,7 +312,7 @@ public:
   void create_character_file(
       uint32_t guild_card_number,
       Language language,
-      const PlayerDispDataBBPreview& preview,
+      const PlayerVisualConfigV4& visual,
       std::shared_ptr<const LevelTable> level_table);
   void create_battle_overlay(std::shared_ptr<const BattleRules> rules, std::shared_ptr<const LevelTable> level_table);
   void create_challenge_overlay(Version version, size_t template_index, std::shared_ptr<const LevelTable> level_table);
@@ -353,9 +346,8 @@ public:
   void cancel_pending_promises();
 
 private:
-  // The overlay character data is used in battle and challenge modes, when
-  // character data is temporarily replaced in-game. In other play modes and in
-  // lobbies, overlay_character_data is null.
+  // The overlay character data is used in battle and challenge modes, when character data is temporarily replaced
+  // in-game. In other play modes and in lobbies, overlay_character_data is null.
   std::shared_ptr<PSOBBBaseSystemFile> system_data;
   std::shared_ptr<PSOBBCharacterFile> overlay_character_data;
   std::shared_ptr<PSOBBCharacterFile> character_data;
@@ -365,4 +357,5 @@ private:
 
   void load_all_files();
   void update_character_data_after_load(std::shared_ptr<PSOBBCharacterFile> character_data);
+  void update_bank_data_after_load(std::shared_ptr<PlayerBank> bank_data);
 };

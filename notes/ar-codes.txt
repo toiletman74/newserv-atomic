@@ -13,6 +13,7 @@ Version codes (from README.md):
   1OJF: PSO DC v1 JP
   1OEF: PSO DC v1 US
   1OPF: PSO DC v1 EU
+  2OJ4: PSO DC 08/2001 prototype
   2OJ5: PSO DC 08/2001 prototype
   2OJF: PSO DC v2 JP
   2OEF: PSO DC v2 US
@@ -40,6 +41,7 @@ Version codes (from README.md):
   4OEU: PSO Xbox US TU
   4OPD: PSO Xbox EU Disc
   4OPU: PSO Xbox EU TU
+  50YJ: PSO BB US 1.24.3
   59NJ: PSO BB JP 1.25.11
   59NL: PSO BB JP 1.25.13 (including the Tethealla client)
 
@@ -80,12 +82,16 @@ Disable item equip restrictions ("God of equip")
 3OJ5 => 041050D4 38000005
 3OJT => 0415BF50 38000005
 3OP0 => 041052D4 38000005
+5OYJ => 005C8C8F E9A7000000
+59NJ => 005C9F35 E9A7000000
 59NL => 005C9F31 E9A7000000
 
 All items visible in Pioneer 2
 3OE1 => 04102D88 38600000
 
 Mags visible in Pioneer 2
+5OYJ => 005D7053 EB04
+59NJ => 005D8F27 EB04
 59NL => 005D8F4B EB04
 
 Disable pause menu background + offset
@@ -93,6 +99,12 @@ Disable pause menu background + offset
         0428735C 4800000C
 3OE2 => 0424CED8 48000370
         042887D8 4800000C
+5OYJ => 00713758 9090
+        0072D417 9090
+        0072D27E 90E9
+59NJ => 00719C58 9090
+        00733C57 9090
+        00733ABE 90E9
 59NL => 00719B54 9090
         00733BA7 9090
         00733A0E 90E9
@@ -253,16 +265,6 @@ Unlock all COM decks
 3SJ0 => 042C9B34 38600001
 3SP0 => 042CB414 38600001
 3SE0 => 042CA908 38600001
-
-Enable marker color menu in all lobbies
-3OJ2 => 04138200 3800000E
-3OJ3 => 04138508 3800000E
-3OJ4 => 041390AC 3800000E
-3OJ5 => 041385B0 3800000E
-3OE0 => 041384BC 3800000E
-3OE1 => 041384BC 3800000E
-3OE2 => 041385C0 3800000E
-3OP0 => 04138840 3800000E
 
 Enable all lobby counter options in non-CARD lobbies
 3SE0 => 04096A8C 480000C0
@@ -646,6 +648,10 @@ Fast tekker (skips wind-up jingle)
         0023EF77 jmp    +0x0A
 4OPU => 0023F14C mov    dword [ebp + 0x14C], 1
         0023F167 jmp    +0x0A
+5OYJ => 006D3F7B mov    dword [edi + 0x14C], 1
+        006D3F98 jmp    +0x0B
+59NJ => 006DA14B mov    dword [edi + 0x14C], 1
+        006DA168 jmp    +0x0B
 59NL => 006DA113 mov    dword [edi + 0x14C], 1
         006DA130 jmp    +0x0B
 
@@ -676,8 +682,20 @@ Allow loading corrupted save files
         041156D4 4E800020
 
 60 frames per second
-This does not adjust any logic or animations; everything just runs faster
-3OE1 => 045CDEF8 00000001
+This doesn't adjust any logic or animations; everything just runs faster
+3OJT => 043F5AC0 38800001
+3OJ2 => 043D8550 38800001
+3OJ3 => 043DAF58 38800001
+3OJ4 => 043DCDF8 38800001
+3OJ5 => 043DCBA8 38800001
+3OE0 => 043D9820 38800001
+3OE1 => 043D9878 38800001
+3OE2 => 043DCF78 38800001
+3OP0 => 043DBA68 38800001
+3SJT => 043567AC 38800001
+3SE0 => 0438A804 38800001
+3SJ0 => 043897B4 38800001
+3SP0 => 0438B6D4 38800001
 
 Show extended item info when targeting a dropped item
 (Compiled from the ExtendedItemInfo patch, also written by me)
@@ -982,5 +1000,149 @@ Override Challenge mode random enemy location tables limit
 4OEU => 002E742C XXXXXXXX (count as little-endian dword)
 4OPD => 002E720C XXXXXXXX (count as little-endian dword)
 4OPU => 002E745C XXXXXXXX (count as little-endian dword)
+5OYJ => 008075C3 XXXXXXXX (count * 4 as little-endian dword)
+        008075DC XXXXXXXX (count as little-endian dword)
+59NJ => 0080FA3F XXXXXXXX (count * 4 as little-endian dword)
+        0080FA58 XXXXXXXX (count as little-endian dword)
 59NL => 0080ECB7 XXXXXXXX (count * 4 as little-endian dword)
         0080ECD0 XXXXXXXX (count as little-endian dword)
+
+Disable dust effect in CCA
+3OJT => 042F4EE8 48000010
+3OJ2 => 04297ECC 48000010
+3OJ3 => 04298C94 48000010
+3OJ4 => 04299DAC 48000010
+3OJ5 => 04299B60 48000010
+3OE0 => 042987EC 48000010
+3OE1 => 04298830 48000010
+3OE2 => 04299D14 48000010
+3OP0 => 042994BC 48000010
+
+Inventory debugging code
+(makes a copy of player 1's inventory at 8000A04C, updated every frame)
+3OE2 => 0400A000 9421FFE0  // stwu    [r1 - 0x20], r1
+        0400A004 7C0802A6  // mflr    r0
+        0400A008 90010024  // stw     [r1 + 0x24], r0
+        0400A00C 3C608051  // lis     r3, 0x8051
+        0400A010 8063EA10  // lwz     r3, [r3 - 0x15F0] // r3 = TObjPlayer_objs[0]
+        0400A014 3C808000  // lis     r4, 0x8000
+        0400A018 6084A050  // ori     r4, r4, 0xA050
+        0400A01C 9064FFFC  // stw     [r4 - 4], r3 // 8000A04C = 0 (in case player is null)
+        0400A020 28030000  // cmplwi  r3, 0
+        0400A024 41820014  // beq     +0x10
+        0400A028 481AE2E9  // bl      TObjPlayer_export_inventory // (TObjPlayer_objs[0], 0x8000A050)
+        0400A02C 3C808000  // lis     r4, 0x8000
+        0400A030 6084A04C  // ori     r4, r4, 0xA04C
+        0400A034 90640000  // stw     [r4], r3 // 8000A04C = inventory item count
+        0400A038 80010024  // lwz     r0, [r1 + 0x24]
+        0400A03C 7C0803A6  // mtlr    r0
+        0400A040 38210020  // addi    r1, r1, 0x20
+        0400A044 4E800020  // blr
+        041A39B8 4BE66648  // b       8000A000 // main_phase_0E_exec_frame return - chain to hook at 8000A000
+
+Load qdefault.bin quest script from disk in offline free play
+(Don't use this on a disc image where qdefault.bin doesn't exist; there is a bug in the quest script environment constructor that will leave the current directory set incorrectly if the file doesn't exist, and the game will softlock)
+3OE1 => 041A3A30 4BE6656D
+        041A3088 4BE66F1D
+        04009F9C 38600002
+        04009FA0 48000008
+        04009FA4 38600000
+        04009FA8 7C0802A6
+        04009FAC 9421FFE0
+        04009FB0 90010024
+        04009FB4 90610008
+        04009FB8 386001A4
+        04009FBC 4821F581
+        04009FC0 28030000
+        04009FC4 41820018
+        04009FC8 808DBD20
+        04009FCC 3CA08000
+        04009FD0 60A59FF0
+        04009FD4 38C00000
+        04009FD8 481EC171
+        04009FDC 80610008
+        04009FE0 80010024
+        04009FE4 38210020
+        04009FE8 7C0803A6
+        04009FEC 4E800020
+        04009FF0 71646566
+        04009FF4 61756C74
+        04009FF8 2E62696E
+        04009FFC 00000000
+3OE2 => 041A3B5C 4BE66441
+        041A31B0 4BE66DF5
+        04009F9C 38600002
+        04009FA0 48000008
+        04009FA4 38600000
+        04009FA8 7C0802A6
+        04009FAC 9421FFE0
+        04009FB0 90010024
+        04009FB4 90610008
+        04009FB8 386001A4
+        04009FBC 48220635
+        04009FC0 28030000
+        04009FC4 41820018
+        04009FC8 808DBD40
+        04009FCC 3CA08000
+        04009FD0 60A59FF0
+        04009FD4 38C00000
+        04009FD8 481EC309
+        04009FDC 80610008
+        04009FE0 80010024
+        04009FE4 38210020
+        04009FE8 7C0803A6
+        04009FEC 4E800020
+        04009FF0 71646566
+        04009FF4 61756C74
+        04009FF8 2E62696E
+        04009FFC 00000000
+
+Enable quest board menu in free play (for use with the above code)
+3OE0 => 04262B44 38600001
+3OE1 => 04262B44 38600001
+3OE2 => 04263F04 38600001
+3OJ2 => 0426226C 38600001
+3OJ3 => 04262E44 38600001
+3OJ4 => 04263EB8 38600001
+3OP0 => 0426374C 38600001
+
+All classes' footsteps sound like RAcast's
+(Change the 2 in 38600002 to 0 for human/Newman, 1 for lighter androids, or 3 if you want to be annoyed)
+3OE0 => 041B3ED0 38600002
+        041B3ED4 4E800020
+3OE1 => 041B3ED0 38600002
+        041B3ED4 4E800020
+3OE2 => 041B4068 38600002
+        041B406C 4E800020
+3OJ2 => 041B3AE4 38600002
+        041B3AE8 4E800020
+3OJ3 => 041B3F38 38600002
+        041B3F3C 4E800020
+3OJ4 => 041B552C 38600002
+        041B5530 4E800020
+3OJ5 => 041B4004 38600002
+        041B4008 4E800020
+3OJT => 0420A120 38600002
+        0420A124 4E800020
+3OP0 => 041B4524 38600002
+        041B4528 4E800020
+3SE0 => 040D0378 38600002
+        040D037C 4E800020
+3SJ0 => 040D0394 38600002
+        040D0398 4E800020
+3SJT => 040D431C 38600002
+        040D4320 4E800020
+3SP0 => 040D07BC 38600002
+        040D07C0 4E800020
+
+Rappy size modifier
+3OE1 => 040C1E24 48000020 // Disable flag check in render
+        045D0718 40800000 // X/Z scale as float (here, 4.0)
+        045D071C 40800000 // Y scale as float (here, 4.0)
+
+Disable HP reduction warning sound in Challenge mode
+3OE1 => 04076A28 4E800020
+
+Mag invincibility effect sparkliness modifier
+(Default 003C; smaller values are more sparkly)
+3OE1 => 801131C4 3860XXXX

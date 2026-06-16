@@ -23,13 +23,11 @@
 #include "StaticGameData.hh"
 #include "Text.hh"
 
-using namespace std;
-
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Tools
 
-string str_for_flag_ranges(const vector<bool>& flags) {
-  string ret;
+std::string str_for_flag_ranges(const std::vector<bool>& flags) {
+  std::string ret;
   auto add_result = [&](size_t start, size_t end) {
     if (!ret.empty()) {
       ret.push_back(',');
@@ -60,7 +58,7 @@ string str_for_flag_ranges(const vector<bool>& flags) {
   return ret;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Checks
 
 class precondition_failed {
@@ -144,7 +142,7 @@ struct Args {
   void check_cheat_mode_available(bool behavior_is_cheating) const {
     if (behavior_is_cheating &&
         this->check_permissions &&
-        (this->c->require_server_state()->cheat_mode_behavior == ServerState::BehaviorSwitch::OFF) &&
+        (this->c->require_server_state()->data->cheat_mode_behavior == DataIndex::BehaviorSwitch::OFF) &&
         (!this->c->login || !this->c->login->account->check_flag(Account::Flag::CHEAT_ANYWHERE))) {
       throw precondition_failed("$C6Cheats are disabled");
     }
@@ -165,7 +163,7 @@ struct Args {
   }
 };
 
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Command definitions
 
 struct ChatCommandDefinition {
@@ -174,21 +172,21 @@ struct ChatCommandDefinition {
   std::vector<const char*> names;
   Handler handler;
 
-  static unordered_map<string, const ChatCommandDefinition*> all_defs;
+  static std::unordered_map<std::string, const ChatCommandDefinition*> all_defs;
 
   ChatCommandDefinition(std::initializer_list<const char*> names, Handler handler)
       : names(names), handler(handler) {
     for (const char* name : this->names) {
       if (!this->all_defs.emplace(name, this).second) {
-        throw logic_error("duplicate command definition: " + string(name));
+        throw std::logic_error("duplicate command definition: " + std::string(name));
       }
     }
   }
 };
 
-unordered_map<string, const ChatCommandDefinition*> ChatCommandDefinition::all_defs;
+std::unordered_map<std::string, const ChatCommandDefinition*> ChatCommandDefinition::all_defs;
 
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // All commands (in alphabetical order)
 
 ChatCommandDefinition cc_allevent(
@@ -221,12 +219,12 @@ static asio::awaitable<void> server_command_announce_inner(const Args& a, bool m
   auto s = a.c->require_server_state();
   if (anonymous) {
     if (mail) {
-      send_simple_mail(s, 0, s->name, a.text);
+      send_simple_mail(s, 0, s->data->name, a.text);
     } else {
       send_text_or_scrolling_message(s, a.text, a.text);
     }
   } else {
-    auto from_name = a.c->character_file()->disp.name.decode(a.c->language());
+    auto from_name = a.c->character_file()->disp.visual.name.decode(a.c->language());
     if (mail) {
       send_simple_mail(s, 0, from_name, a.text);
     } else {
@@ -265,8 +263,8 @@ ChatCommandDefinition cc_announce_rares(
 
       a.c->login->account->toggle_user_flag(Account::UserFlag::DISABLE_DROP_NOTIFICATION_BROADCAST);
       a.c->login->account->save();
-      send_text_message_fmt(a.c, "$C6Rare announcements\n{} for your\nitems",
-          a.c->login->account->check_user_flag(Account::UserFlag::DISABLE_DROP_NOTIFICATION_BROADCAST) ? "disabled" : "enabled");
+      bool enabled = a.c->login->account->check_user_flag(Account::UserFlag::DISABLE_DROP_NOTIFICATION_BROADCAST);
+      send_text_message_fmt(a.c, "$C6Rare announcements\n{} for your\nitems", enabled ? "disabled" : "enabled");
       co_return;
     });
 
@@ -332,10 +330,10 @@ ChatCommandDefinition cc_auction(
       co_return;
     });
 
-static string name_for_client(shared_ptr<Client> c) {
+static std::string name_for_client(std::shared_ptr<Client> c) {
   auto player = c->character_file(false);
   if (player.get()) {
-    return escape_player_name(player->disp.name.decode(player->inventory.language));
+    return escape_player_name(player->disp.visual.name.decode(player->inventory.language));
   }
 
   if (c->login) {
@@ -355,11 +353,11 @@ ChatCommandDefinition cc_ban(
       auto l = a.c->require_lobby();
 
       size_t space_pos = a.text.find(' ');
-      if (space_pos == string::npos) {
+      if (space_pos == std::string::npos) {
         throw precondition_failed("$C6Incorrect arguments");
       }
 
-      string identifier = a.text.substr(space_pos + 1);
+      std::string identifier = a.text.substr(space_pos + 1);
       auto target = s->find_client(&identifier);
       if (!target->login) {
         // This should be impossible, but I'll bet it's not actually
@@ -370,10 +368,9 @@ ChatCommandDefinition cc_ban(
         throw precondition_failed("$C6You do not have\nsufficient privileges.");
       }
       if (a.c == target) {
-        // This shouldn't be possible because you need BAN_USER to get here,
-        // but the target can't have BAN_USER if we get here, so if a.c and
-        // target are the same, one of the preceding conditions must be false.
-        throw logic_error("client attempts to ban themself");
+        // This shouldn't be possible because you need BAN_USER to get here, but the target can't have BAN_USER if we
+        // get here, so if a.c and target are the same, one of the preceding conditions must be false.
+        throw std::logic_error("client attempts to ban themself");
       }
 
       uint64_t usecs = stoull(a.text, nullptr, 0) * 1000000;
@@ -398,9 +395,8 @@ ChatCommandDefinition cc_ban(
       target->login->account->ban_end_time = phosg::now() + usecs;
       target->login->account->save();
       send_message_box(target, "$C6You have been banned.");
-      string target_name = name_for_client(target);
+      send_text_message_fmt(a.c, "$C6{} banned", name_for_client(target));
       target->channel->disconnect();
-      send_text_message_fmt(a.c, "$C6{} banned", target_name);
       co_return;
     });
 
@@ -410,10 +406,10 @@ ChatCommandDefinition cc_bank(
       a.check_is_proxy(false);
       a.check_version(Version::BB_V4);
       if (a.c->check_flag(Client::Flag::AT_BANK_COUNTER)) {
-        throw runtime_error("cannot change banks while at the bank counter");
+        throw std::runtime_error("cannot change banks while at the bank counter");
       }
       if (a.c->has_overlay()) {
-        throw runtime_error("cannot change banks while Battle or Challenge is in progress");
+        throw std::runtime_error("cannot change banks while Battle or Challenge is in progress");
       }
 
       ssize_t new_char_index = a.text.empty() ? (a.c->bb_character_index + 1) : stol(a.text, nullptr, 0);
@@ -451,17 +447,17 @@ static asio::awaitable<void> server_command_bbchar_savechar(const Args& a, bool 
     throw precondition_failed("$C6Episode 3 players\ncannot be converted\nto BB format");
   }
 
-  shared_ptr<Account> dest_account;
-  shared_ptr<BBLicense> dest_bb_license;
+  std::shared_ptr<Account> dest_account;
+  std::shared_ptr<BBLicense> dest_bb_license;
   size_t dest_character_index = 0;
   if (is_bb_conversion) {
-    vector<string> tokens = phosg::split(a.text, ' ');
+    std::vector<std::string> tokens = phosg::split(a.text, ' ');
     if (tokens.size() != 3) {
       throw precondition_failed("$C6Incorrect argument\ncount");
     }
 
     // username/password are tokens[0] and [1]
-    dest_character_index = stoull(tokens[2]) - 1;
+    dest_character_index = std::stoull(tokens[2]) - 1;
     if (dest_character_index >= 127) {
       throw precondition_failed("$C6Player index must\nbe in range 1-127");
     }
@@ -470,20 +466,19 @@ static asio::awaitable<void> server_command_bbchar_savechar(const Args& a, bool 
       auto dest_login = s->account_index->from_bb_credentials(tokens[0], &tokens[1], false);
       dest_account = dest_login->account;
       dest_bb_license = dest_login->bb_license;
-    } catch (const exception& e) {
+    } catch (const std::exception& e) {
       throw precondition_failed("$C6Login failed: {}", e.what());
     }
 
   } else {
     dest_character_index = stoull(a.text) - 1;
-    if (dest_character_index >= s->num_backup_character_slots) {
-      throw precondition_failed("$C6Player index must\nbe in range 1-{}", s->num_backup_character_slots);
+    if (dest_character_index >= s->data->num_backup_character_slots) {
+      throw precondition_failed("$C6Player index must\nbe in range 1-{}", s->data->num_backup_character_slots);
     }
     dest_account = a.c->login->account;
   }
 
-  // If the client isn't BB, request the player info. (If they are BB, the
-  // server already has it)
+  // If the client isn't BB, request the player info. (If they are BB, the server already has it)
   GetPlayerInfoResult ch;
   if (a.c->version() == Version::BB_V4) {
     ch.character = a.c->character_file();
@@ -492,7 +487,7 @@ static asio::awaitable<void> server_command_bbchar_savechar(const Args& a, bool 
     ch = co_await send_get_player_info(a.c, true);
   }
 
-  string filename = dest_bb_license
+  std::string filename = dest_bb_license
       ? Client::character_filename(dest_bb_license->username, dest_character_index)
       : Client::backup_character_filename(dest_account->account_id, dest_character_index, is_ep3(a.c->version()));
 
@@ -502,7 +497,7 @@ static asio::awaitable<void> server_command_bbchar_savechar(const Args& a, bool 
       try {
         Client::save_ep3_character_file(filename, *ch.ep3_character);
         send_text_message(a.c, "$C7Character data saved\n(full save file)");
-      } catch (const exception& e) {
+      } catch (const std::exception& e) {
         send_text_message_fmt(a.c, "$C6Character data could\nnot be saved:\n{}", e.what());
       }
     }
@@ -510,41 +505,35 @@ static asio::awaitable<void> server_command_bbchar_savechar(const Args& a, bool 
       try {
         Client::save_character_file(filename, a.c->system_file(), ch.character);
         send_text_message(a.c, "$C7Character data saved\n(full save file)");
-      } catch (const exception& e) {
+      } catch (const std::exception& e) {
         send_text_message_fmt(a.c, "$C6Character data could\nnot be saved:\n{}", e.what());
       }
     }
 
   } else {
-    // Client sent 61; generate a BB-format player from the information we have
-    // and save that instead
+    // Client sent 61; generate a BB-format player from the information we have and save that instead
     if (ch.character) {
       auto bb_player = PSOBBCharacterFile::create_from_config(
-          a.c->login->account->account_id,
-          a.c->language(),
-          ch.character->disp.visual,
-          ch.character->disp.name.decode(a.c->language()),
-          s->level_table(a.c->version()));
-      bb_player->disp.visual.version = 4;
-      bb_player->disp.visual.name_color_checksum = 0x00000000;
+          a.c->login->account->account_id, a.c->language(), ch.character->disp.visual, s->data->level_table(a.c->version()));
+      bb_player->disp.visual.sh.version = 4;
+      bb_player->disp.visual.sh.name_color_checksum = 0x00000000;
       bb_player->inventory = ch.character->inventory;
-      // Before V3, player stats can't be correctly computed from other fields
-      // because material usage isn't stored anywhere. For these versions, we
-      // have to trust the stats field from the player's data.
-      auto level_table = s->level_table(a.c->version());
+      // Before V3, player stats can't be correctly computed from other fields because material usage isn't stored
+      // anywhere. For these versions, we have to trust the stats field from the player's data.
+      auto level_table = s->data->level_table(a.c->version());
       if (is_v1_or_v2(a.c->version())) {
         bb_player->disp.stats = ch.character->disp.stats;
         bb_player->import_tethealla_material_usage(level_table);
       } else {
         level_table->advance_to_level(
-            bb_player->disp.stats, ch.character->disp.stats.level, bb_player->disp.visual.char_class);
+            bb_player->disp.stats, ch.character->disp.stats.level, bb_player->disp.visual.sh.char_class);
         bb_player->disp.stats.char_stats.atp += bb_player->get_material_usage(PSOBBCharacterFile::MaterialType::POWER) * 2;
         bb_player->disp.stats.char_stats.mst += bb_player->get_material_usage(PSOBBCharacterFile::MaterialType::MIND) * 2;
         bb_player->disp.stats.char_stats.evp += bb_player->get_material_usage(PSOBBCharacterFile::MaterialType::EVADE) * 2;
         bb_player->disp.stats.char_stats.dfp += bb_player->get_material_usage(PSOBBCharacterFile::MaterialType::DEF) * 2;
         bb_player->disp.stats.char_stats.lck += bb_player->get_material_usage(PSOBBCharacterFile::MaterialType::LUCK) * 2;
         bb_player->disp.stats.char_stats.hp += bb_player->get_material_usage(PSOBBCharacterFile::MaterialType::HP) * 2;
-        bb_player->disp.stats.experience = ch.character->disp.stats.experience;
+        bb_player->disp.stats.exp = ch.character->disp.stats.exp;
         bb_player->disp.stats.meseta = ch.character->disp.stats.meseta;
       }
       bb_player->disp.technique_levels_v1 = ch.character->disp.technique_levels_v1;
@@ -557,7 +546,7 @@ static asio::awaitable<void> server_command_bbchar_savechar(const Args& a, bool 
       try {
         Client::save_character_file(filename, a.c->system_file(), bb_player);
         send_text_message(a.c, "$C7Character data saved\n(basic only)");
-      } catch (const exception& e) {
+      } catch (const std::exception& e) {
         send_text_message_fmt(a.c, "$C6Character data could\nnot be saved:\n{}", e.what());
       }
     }
@@ -589,8 +578,8 @@ ChatCommandDefinition cc_cheat(
         auto s = a.c->require_server_state();
         if (!l->check_flag(Lobby::Flag::CHEATS_ENABLED) &&
             !a.c->login->account->check_flag(Account::Flag::CHEAT_ANYWHERE) &&
-            s->cheat_flags.insufficient_minimum_level) {
-          size_t default_min_level = s->default_min_level_for_game(a.c->version(), l->episode, l->difficulty);
+            s->data->cheat_flags.insufficient_minimum_level) {
+          size_t default_min_level = s->data->default_min_level_for_game(a.c->version(), l->episode, l->difficulty);
           if (l->min_level < default_min_level) {
             l->min_level = default_min_level;
             send_text_message_fmt(l, "$C6Minimum level set\nto {}", l->min_level + 1);
@@ -612,39 +601,39 @@ ChatCommandDefinition cc_checkchar(
       if (a.text.empty()) {
         bool is_ep3 = ::is_ep3(a.c->version());
 
-        vector<bool> flags;
+        std::vector<bool> flags;
         flags.emplace_back(false);
-        for (size_t z = 0; z < s->num_backup_character_slots; z++) {
-          string filename = a.c->backup_character_filename(a.c->login->account->account_id, z, is_ep3);
+        for (size_t z = 0; z < s->data->num_backup_character_slots; z++) {
+          std::string filename = a.c->backup_character_filename(a.c->login->account->account_id, z, is_ep3);
           flags.emplace_back(std::filesystem::is_regular_file(filename));
         }
-        string used_str = str_for_flag_ranges(flags);
+        std::string used_str = str_for_flag_ranges(flags);
         flags.flip();
         flags[0] = false;
-        string free_str = str_for_flag_ranges(flags);
+        std::string free_str = str_for_flag_ranges(flags);
         send_text_message_fmt(a.c, "Used: {}\nFree: {}", used_str, free_str);
 
       } else {
         size_t index = stoull(a.text, nullptr, 0) - 1;
-        if (index >= s->num_backup_character_slots) {
-          throw precondition_failed("$C6Player index must\nbe in range 1-{}", s->num_backup_character_slots);
+        if (index >= s->data->num_backup_character_slots) {
+          throw precondition_failed("$C6Player index must\nbe in range 1-{}", s->data->num_backup_character_slots);
         }
 
         try {
           if (is_ep3(a.c->version())) {
-            string filename = a.c->backup_character_filename(a.c->login->account->account_id, index, true);
+            std::string filename = a.c->backup_character_filename(a.c->login->account->account_id, index, true);
             auto ch = phosg::load_object_file<PSOGCEp3CharacterFile::Character>(filename);
             send_text_message_fmt(a.c, "Slot {}: $C6{}$C7\n{} {}\nCLv: on {}.{}, off {}.{}",
                 index + 1, ch.disp.visual.name.decode(),
-                name_for_section_id(ch.disp.visual.section_id), name_for_char_class(ch.disp.visual.char_class),
+                name_for_section_id(ch.disp.visual.sh.section_id), name_for_char_class(ch.disp.visual.sh.char_class),
                 (ch.ep3_config.online_clv_exp / 100) + 1, ch.ep3_config.online_clv_exp % 100,
                 (ch.ep3_config.offline_clv_exp / 100) + 1, ch.ep3_config.offline_clv_exp % 100);
           } else {
-            string filename = a.c->backup_character_filename(a.c->login->account->account_id, index, false);
+            std::string filename = a.c->backup_character_filename(a.c->login->account->account_id, index, false);
             auto ch = PSOCHARFile::load_shared(filename, false).character_file;
             send_text_message_fmt(a.c, "Slot {}: $C6{}$C7\n{} {}\nLevel {}",
-                index + 1, ch->disp.name.decode(),
-                name_for_section_id(ch->disp.visual.section_id), name_for_char_class(ch->disp.visual.char_class),
+                index + 1, ch->disp.visual.name.decode(),
+                name_for_section_id(ch->disp.visual.sh.section_id), name_for_char_class(ch->disp.visual.sh.char_class),
                 ch->disp.stats.level + 1);
           }
         } catch (const phosg::cannot_open_file&) {
@@ -677,7 +666,7 @@ ChatCommandDefinition cc_deletechar(
         throw precondition_failed("$C6Player index must\nbe in range 1-16");
       }
 
-      string filename = a.c->backup_character_filename(a.c->login->account->account_id, index, is_ep3(a.c->version()));
+      std::string filename = a.c->backup_character_filename(a.c->login->account->account_id, index, is_ep3(a.c->version()));
       if (std::filesystem::is_regular_file(filename)) {
         std::filesystem::remove(filename);
         send_text_message_fmt(a.c, "Character in slot\n{} deleted", index + 1);
@@ -698,7 +687,7 @@ ChatCommandDefinition cc_dicerange(
 
       auto l = a.c->require_lobby();
       if (l->episode != Episode::EP3) {
-        throw logic_error("non-Ep3 client in Ep3 game");
+        throw std::logic_error("non-Ep3 client in Ep3 game");
       }
       if (!l->ep3_server) {
         throw precondition_failed("$C6Episode 3 server\nis not initialized");
@@ -710,7 +699,7 @@ ChatCommandDefinition cc_dicerange(
         throw precondition_failed("$C6Cannot override\ndice ranges in a\ntournament");
       }
 
-      auto parse_dice_range = +[](const string& spec) -> uint8_t {
+      auto parse_dice_range = +[](const std::string& spec) -> uint8_t {
         auto tokens = phosg::split(spec, '-');
         if (tokens.size() == 1) {
           uint8_t v = stoull(spec);
@@ -718,7 +707,7 @@ ChatCommandDefinition cc_dicerange(
         } else if (tokens.size() == 2) {
           return (stoull(tokens[0]) << 4) | (stoull(tokens[1]) & 0x0F);
         } else {
-          throw runtime_error("invalid dice spec format");
+          throw std::runtime_error("invalid dice spec format");
         }
       };
 
@@ -771,7 +760,7 @@ ChatCommandDefinition cc_dropmode(
     +[](const Args& a) -> asio::awaitable<void> {
       a.check_is_game(true);
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_or_allowed(s->cheat_flags.proxy_override_drops);
+      a.check_cheats_enabled_or_allowed(s->data->cheat_flags.proxy_override_drops);
 
       if (a.c->proxy_session) {
 
@@ -892,38 +881,38 @@ ChatCommandDefinition cc_edit(
       }
 
       bool cheats_allowed = (!a.check_permissions ||
-          (s->cheat_mode_behavior != ServerState::BehaviorSwitch::OFF) ||
+          (s->data->cheat_mode_behavior != DataIndex::BehaviorSwitch::OFF) ||
           a.c->login->account->check_flag(Account::Flag::CHEAT_ANYWHERE));
 
-      string encoded_args = phosg::tolower(a.text);
-      vector<string> tokens = phosg::split(encoded_args, ' ');
+      std::string encoded_args = phosg::tolower(a.text);
+      std::vector<std::string> tokens = phosg::split(encoded_args, ' ');
 
       using MatType = PSOBBCharacterFile::MaterialType;
 
       try {
         auto p = a.c->character_file();
-        if (tokens.at(0) == "atp" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.atp = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "mst" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.mst = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "evp" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.evp = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "hp" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.hp = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "dfp" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.dfp = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "ata" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.ata = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "lck" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.char_stats.lck = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "meseta" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.meseta = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "exp" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.experience = stoul(tokens.at(1));
-        } else if (tokens.at(0) == "level" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          p->disp.stats.level = stoul(tokens.at(1)) - 1;
-          p->recompute_stats(s->level_table(a.c->version()), true);
-        } else if (((tokens.at(0) == "material") || (tokens.at(0) == "mat")) && !is_v1_or_v2(a.c->version()) && (cheats_allowed || !s->cheat_flags.reset_materials)) {
+        if (tokens.at(0) == "atp" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.atp = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "mst" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.mst = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "evp" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.evp = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "hp" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.hp = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "dfp" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.dfp = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "ata" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.ata = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "lck" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.char_stats.lck = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "meseta" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.meseta = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "exp" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.exp = std::stoul(tokens.at(1));
+        } else if (tokens.at(0) == "level" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          p->disp.stats.level = std::stoul(tokens.at(1)) - 1;
+          p->recompute_stats(s->data->level_table(a.c->version()), true);
+        } else if (((tokens.at(0) == "material") || (tokens.at(0) == "mat")) && !is_v1_or_v2(a.c->version()) && (cheats_allowed || !s->data->cheat_flags.reset_materials)) {
           if (tokens.at(1) == "reset") {
             const auto& which = tokens.at(2);
             if (which == "power") {
@@ -960,12 +949,12 @@ ChatCommandDefinition cc_edit(
           } else {
             throw precondition_failed("$C6Invalid subcommand");
           }
-          p->recompute_stats(s->level_table(a.c->version()), false);
+          p->recompute_stats(s->data->level_table(a.c->version()), false);
         } else if (tokens.at(0) == "namecolor") {
-          p->disp.visual.name_color = stoul(tokens.at(1), nullptr, 16);
+          p->disp.visual.sh.name_color = std::stoul(tokens.at(1), nullptr, 16);
         } else if (tokens.at(0) == "language" || tokens.at(0) == "lang") {
           if (tokens.at(1).size() != 1) {
-            throw runtime_error("invalid language");
+            throw std::runtime_error("invalid language");
           }
           Language new_language = language_for_char(tokens.at(1).at(0));
           a.c->channel->language = new_language;
@@ -976,34 +965,34 @@ ChatCommandDefinition cc_edit(
             sys->language = new_language;
           }
         } else if (tokens.at(0) == "secid") {
-          if (!cheats_allowed && (p->disp.stats.level > 0) && s->cheat_flags.edit_section_id) {
+          if (!cheats_allowed && (p->disp.stats.level > 0) && s->data->cheat_flags.edit_section_id) {
             throw precondition_failed("$C6You cannot change\nyour Section ID\nafter level 1");
           }
           uint8_t secid = section_id_for_name(tokens.at(1));
           if (secid == 0xFF) {
             throw precondition_failed("$C6No such section ID");
           } else {
-            p->disp.visual.section_id = secid;
+            p->disp.visual.sh.section_id = secid;
           }
         } else if (tokens.at(0) == "name") {
-          vector<string> orig_tokens = phosg::split(a.text, ' ', 1);
-          p->disp.name.encode(orig_tokens.at(1), p->inventory.language);
+          std::vector<std::string> orig_tokens = phosg::split(a.text, ' ', 1);
+          p->disp.visual.name.encode(orig_tokens.at(1), p->inventory.language);
         } else if (tokens.at(0) == "npc") {
           if (tokens.at(1) == "none") {
-            p->disp.visual.extra_model = 0;
-            p->disp.visual.validation_flags &= 0xFD;
-            p->disp.visual.restore_npc_saved_fields();
+            p->disp.visual.sh.extra_model = 0;
+            p->disp.visual.sh.validation_flags &= 0xFD;
+            p->disp.visual.sh.restore_npc_saved_fields();
           } else {
             uint8_t npc = npc_for_name(tokens.at(1), a.c->version());
             if (npc == 0xFF) {
               throw precondition_failed("$C6No such NPC");
             }
-            p->disp.visual.backup_npc_saved_fields();
-            p->disp.visual.extra_model = npc;
-            p->disp.visual.validation_flags |= 0x02;
+            p->disp.visual.sh.backup_npc_saved_fields();
+            p->disp.visual.sh.extra_model = npc;
+            p->disp.visual.sh.validation_flags |= 0x02;
           }
-        } else if (tokens.at(0) == "tech" && (cheats_allowed || !s->cheat_flags.edit_stats)) {
-          uint8_t level = stoul(tokens.at(2)) - 1;
+        } else if (tokens.at(0) == "tech" && (cheats_allowed || !s->data->cheat_flags.edit_stats)) {
+          uint8_t level = std::stoul(tokens.at(2)) - 1;
           if (tokens.at(1) == "all") {
             for (size_t x = 0; x < 0x14; x++) {
               p->set_technique_level(x, level);
@@ -1015,14 +1004,14 @@ ChatCommandDefinition cc_edit(
             }
             try {
               p->set_technique_level(tech_id, level);
-            } catch (const out_of_range&) {
+            } catch (const std::out_of_range&) {
               throw precondition_failed("$C6Invalid technique");
             }
           }
         } else {
           throw precondition_failed("$C6Unknown field");
         }
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         throw precondition_failed("$C6Not enough arguments");
       }
 
@@ -1074,9 +1063,7 @@ ChatCommandDefinition cc_event(
 ChatCommandDefinition cc_exit(
     {"$exit"},
     +[](const Args& a) -> asio::awaitable<void> {
-      if (!(a.c->proxy_session
-                  ? a.c->proxy_session->is_in_game
-                  : a.c->require_lobby()->is_game())) {
+      if (!(a.c->proxy_session ? a.c->proxy_session->is_in_game : a.c->require_lobby()->is_game())) {
         // Client is in the lobby; send them to the login server (main menu)
         if (a.c->proxy_session) {
           if (is_v4(a.c->version())) {
@@ -1117,10 +1104,10 @@ ChatCommandDefinition cc_exit(
           a.c->check_flag(Client::Flag::SEND_FUNCTION_CALL_ACTUALLY_RUNS_CODE)) {
         co_await prepare_client_for_patches(a.c);
         auto s = a.c->require_server_state();
-        shared_ptr<const CompiledFunctionCode> fn;
+        std::shared_ptr<const ClientFunctionIndex::Function> fn;
         try {
-          fn = s->function_code_index->get_patch("ExitAnywhere", a.c->specific_version);
-        } catch (const out_of_range&) {
+          fn = s->data->client_functions->get("ExitAnywhere", a.c->specific_version);
+        } catch (const std::out_of_range&) {
         }
         if (fn) {
           co_await send_function_call(a.c, fn);
@@ -1167,7 +1154,7 @@ ChatCommandDefinition cc_infhp(
         send_text_message(a.c, "$C6Infinite HP disabled");
       } else {
         auto s = a.c->require_server_state();
-        a.check_cheats_enabled_or_allowed(s->cheat_flags.infinite_hp_tp);
+        a.check_cheats_enabled_or_allowed(s->data->cheat_flags.infinite_hp_tp);
         a.c->set_flag(Client::Flag::INFINITE_HP_ENABLED);
         co_await send_remove_negative_conditions(a.c);
         if (a.c->proxy_session) {
@@ -1181,8 +1168,6 @@ ChatCommandDefinition cc_infhp(
 ChatCommandDefinition cc_inftime(
     {"$inftime"},
     +[](const Args& a) -> asio::awaitable<void> {
-      // TODO: We could implement this in proxy sessions by rewriting the rules
-      // struct from the server in various 6xB4 commands.
       a.check_is_proxy(false);
       a.check_is_game(true);
       a.check_is_ep3(true);
@@ -1190,7 +1175,7 @@ ChatCommandDefinition cc_inftime(
 
       auto l = a.c->require_lobby();
       if (l->episode != Episode::EP3) {
-        throw logic_error("non-Ep3 client in Ep3 game");
+        throw std::logic_error("non-Ep3 client in Ep3 game");
       }
       if (!l->ep3_server) {
         throw precondition_failed("$C6Episode 3 server\nis not initialized");
@@ -1217,7 +1202,7 @@ ChatCommandDefinition cc_inftp(
         send_text_message(a.c, "$C6Infinite TP disabled");
       } else {
         auto s = a.c->require_server_state();
-        a.check_cheats_enabled_or_allowed(s->cheat_flags.infinite_hp_tp);
+        a.check_cheats_enabled_or_allowed(s->data->cheat_flags.infinite_hp_tp);
         a.c->set_flag(Client::Flag::INFINITE_TP_ENABLED);
         send_text_message(a.c, "$C6Infinite TP enabled");
       }
@@ -1229,25 +1214,33 @@ ChatCommandDefinition cc_item(
     +[](const Args& a) -> asio::awaitable<void> {
       a.check_is_game(true);
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_or_allowed(s->cheat_flags.create_items);
+      a.check_cheats_enabled_or_allowed(s->data->cheat_flags.create_items);
 
       ItemData item;
+      bool was_enqueued = false;
       if (a.c->proxy_session) {
         if (a.c->version() == Version::BB_V4) {
           throw precondition_failed("$C6This command cannot\nbe used in proxy\nsessions in BB games");
         }
         a.check_is_leader();
 
-        item = s->parse_item_description(a.c->version(), a.text);
-        item.id = phosg::random_object<uint32_t>() | 0x80000000;
+        if (a.text.starts_with("!")) {
+          item = s->data->parse_item_description(a.c->version(), a.text.substr(1));
+          a.c->proxy_session->next_drop_item = item;
+          was_enqueued = true;
 
-        send_drop_stacked_item_to_channel(s, a.c->channel, item, a.c->floor, a.c->pos);
-        send_drop_stacked_item_to_channel(s, a.c->proxy_session->server_channel, item, a.c->floor, a.c->pos);
+        } else {
+          item = s->data->parse_item_description(a.c->version(), a.text);
+          item.id = phosg::random_object<uint32_t>() | 0x80000000;
+
+          send_drop_stacked_item_to_channel(s, a.c->channel, item, a.c->floor, a.c->pos);
+          send_drop_stacked_item_to_channel(s, a.c->proxy_session->server_channel, item, a.c->floor, a.c->pos);
+        }
 
       } else {
         auto l = a.c->require_lobby();
-        item = s->parse_item_description(a.c->version(), a.text);
-        item.id = l->generate_item_id(a.c->lobby_client_id);
+        item = s->data->parse_item_description(a.c->version(), a.text);
+        item.id = l->generate_item_id(0xFF);
 
         if ((l->drop_mode == ServerDropMode::SERVER_PRIVATE) || (l->drop_mode == ServerDropMode::SERVER_DUPLICATE)) {
           l->add_item(a.c->floor, item, a.c->pos, nullptr, nullptr, (1 << a.c->lobby_client_id));
@@ -1258,8 +1251,12 @@ ChatCommandDefinition cc_item(
         }
       }
 
-      string name = s->describe_item(a.c->version(), item, ItemNameIndex::Flag::INCLUDE_PSO_COLOR_ESCAPES);
-      send_text_message(a.c, "$C7Item created:\n" + name);
+      std::string name = s->data->describe_item(a.c->version(), item, ItemNameIndex::Flag::INCLUDE_PSO_COLOR_ESCAPES);
+      if (was_enqueued) {
+        send_text_message(a.c, "$C7Next item:\n" + name);
+      } else {
+        send_text_message(a.c, "$C7Item created:\n" + name);
+      }
       co_return;
     });
 
@@ -1301,16 +1298,14 @@ ChatCommandDefinition cc_kick(
         throw precondition_failed("$C6You do not have\nsufficient privileges.");
       }
       if (a.c == target) {
-        // This shouldn't be possible because you need KICK_USER to get here,
-        // but the target can't have KICK_USER if we get here, so if a.c and
-        // target are the same, one of the preceding conditions must be false.
-        throw logic_error("client attempts to kick themself off");
+        // This shouldn't be possible because you need KICK_USER to get here, but the target can't have KICK_USER if we
+        // get here, so if a.c and target are the same, one of the preceding conditions must be false.
+        throw std::logic_error("client attempts to kick themself off");
       }
 
       send_message_box(target, "$C6You have been kicked off the server.");
-      string target_name = name_for_client(target);
+      send_text_message_fmt(a.c, "$C6{} kicked off", name_for_client(target));
       target->channel->disconnect();
-      send_text_message_fmt(a.c, "$C6{} kicked off", target_name);
       co_return;
     });
 
@@ -1320,7 +1315,7 @@ ChatCommandDefinition cc_killcount(
       a.check_is_proxy(false);
 
       auto p = a.c->character_file();
-      vector<size_t> item_indexes;
+      std::vector<size_t> item_indexes;
       for (size_t z = 0; z < p->inventory.num_items; z++) {
         const auto& item = p->inventory.items[z];
         if (item.is_equipped() && item.data.has_kill_count()) {
@@ -1332,13 +1327,10 @@ ChatCommandDefinition cc_killcount(
         throw precondition_failed("No equipped items\nhave kill counts");
 
       } else {
-        // Kill counts are only accurate on the server side at all times on BB.
-        // On other versions, we update the server's view of the client's
-        // inventory during games, but we can't track kills because the client
-        // doesn't inform the server whether it counted a kill for any
-        // individual enemy. So, on non-BB versions, the kill count is accurate
-        // at all times in the lobby (since kills can't occur there), or at the
-        // beginning of a game.
+        // Kill counts are only accurate on the server side at all times on BB. On other versions, we update the
+        // server's view of the client's inventory during games, but we can't track kills because the client doesn't
+        // inform the server whether it counted a kill for any individual enemy. So, on non-BB versions, the kill count
+        // is accurate at all times in the lobby (since kills can't occur there), or at the beginning of a game.
         if ((a.c->version() == Version::BB_V4) || !a.c->require_lobby()->is_game()) {
           send_text_message(a.c, "As of now:");
         } else {
@@ -1348,7 +1340,7 @@ ChatCommandDefinition cc_killcount(
         auto s = a.c->require_server_state();
         for (size_t z : item_indexes) {
           const auto& item = p->inventory.items[z];
-          string name = s->describe_item(
+          std::string name = s->data->describe_item(
               a.c->version(), item.data, ItemNameIndex::Flag::INCLUDE_PSO_COLOR_ESCAPES | ItemNameIndex::Flag::NAME_ONLY);
           send_text_message_fmt(a.c, "{}$C7: {} kills", name, item.data.get_kill_count());
         }
@@ -1360,10 +1352,9 @@ ChatCommandDefinition cc_lobby_info(
     {"$li"},
     +[](const Args& a) -> asio::awaitable<void> {
       if (a.c->proxy_session) {
-        string msg;
-        // On non-masked-GC sessions (BB), there is no remote Guild Card number, so we
-        // don't show it. (The user can see it in the pause menu, unlike in masked-GC
-        // sessions like GC.)
+        std::string msg;
+        // On non-masked-GC sessions (BB), there is no remote Guild Card number, so we don't show it. (The user can see
+        // it in the pause menu, unlike in masked-GC sessions like GC.)
         if (a.c->proxy_session->remote_guild_card_number >= 0) {
           msg = std::format("$C7GC: $C6{}$C7\n", a.c->proxy_session->remote_guild_card_number);
         }
@@ -1385,7 +1376,7 @@ ChatCommandDefinition cc_lobby_info(
           }
         }
 
-        vector<const char*> cheats_tokens;
+        std::vector<const char*> cheats_tokens;
         if (a.c->check_flag(Client::Flag::INFINITE_HP_ENABLED)) {
           cheats_tokens.emplace_back("HP");
         }
@@ -1397,7 +1388,7 @@ ChatCommandDefinition cc_lobby_info(
           msg += phosg::join(cheats_tokens, ",");
         }
 
-        vector<const char*> behaviors_tokens;
+        std::vector<const char*> behaviors_tokens;
         if (a.c->check_flag(Client::Flag::SWITCH_ASSIST_ENABLED)) {
           behaviors_tokens.emplace_back("SWA");
         }
@@ -1420,7 +1411,7 @@ ChatCommandDefinition cc_lobby_info(
         send_text_message(a.c->channel, msg);
 
       } else { // Not proxy session
-        vector<string> lines;
+        std::vector<std::string> lines;
 
         auto l = a.c->lobby.lock();
         if (!l) {
@@ -1477,7 +1468,7 @@ ChatCommandDefinition cc_lobby_info(
             lines.emplace_back(std::format("$C7Lobby ID: $C6{:08X}$C7", l->lobby_id));
           }
 
-          string slots_str = "Slots: ";
+          std::string slots_str = "Slots: ";
           for (size_t z = 0; z < l->clients.size(); z++) {
             if (!l->clients[z]) {
               slots_str += std::format("$C0{:X}$C7", z);
@@ -1539,11 +1530,11 @@ ChatCommandDefinition cc_loadchar(
       auto l = a.c->require_lobby();
 
       size_t index = stoull(a.text, nullptr, 0) - 1;
-      if (index >= s->num_backup_character_slots) {
-        throw precondition_failed("$C6Player index must\nbe in range 1-{}", s->num_backup_character_slots);
+      if (index >= s->data->num_backup_character_slots) {
+        throw precondition_failed("$C6Player index must\nbe in range 1-{}", s->data->num_backup_character_slots);
       }
 
-      shared_ptr<PSOGCEp3CharacterFile::Character> ep3_char;
+      std::shared_ptr<PSOGCEp3CharacterFile::Character> ep3_char;
       if (is_ep3(a.c->version())) {
         ep3_char = a.c->load_ep3_backup_character(a.c->login->account->account_id, index);
       } else {
@@ -1572,14 +1563,14 @@ ChatCommandDefinition cc_loadchar(
         auto send_set_extended_player_info = [&a, &s]<typename CharT>(const CharT& char_file) -> asio::awaitable<void> {
           co_await prepare_client_for_patches(a.c);
           try {
-            auto fn = s->function_code_index->get_patch("SetExtendedPlayerInfo", a.c->specific_version);
+            auto fn = s->data->client_functions->get("SetExtendedPlayerInfo", a.c->specific_version);
             co_await send_function_call(a.c, fn, {}, &char_file, sizeof(CharT));
             auto l = a.c->lobby.lock();
             if (l) {
               send_player_leave_notification(l, a.c->lobby_client_id);
               s->send_lobby_join_notifications(l, a.c);
             }
-          } catch (const exception& e) {
+          } catch (const std::exception& e) {
             a.c->log.warning_f("Failed to set extended player info: {}", e.what());
             throw precondition_failed("Failed to set\nplayer info:\n{}", e.what());
           }
@@ -1601,19 +1592,19 @@ ChatCommandDefinition cc_loadchar(
           co_await send_set_extended_player_info(*ep3_char);
         } else if (a.c->version() == Version::XB_V3) {
           if (!a.c->login || !a.c->login->xb_license) {
-            throw runtime_error("XB client is not logged in");
+            throw std::runtime_error("XB client is not logged in");
           }
           PSOXBCharacterFile::Character xb_char = *a.c->character_file();
           xb_char.guild_card.xb_user_id_high = (a.c->login->xb_license->user_id >> 32) & 0xFFFFFFFF;
           xb_char.guild_card.xb_user_id_low = a.c->login->xb_license->user_id & 0xFFFFFFFF;
           co_await send_set_extended_player_info(xb_char);
         } else {
-          throw logic_error("unimplemented extended player info version");
+          throw std::logic_error("unimplemented extended player info version");
         }
 
       } else {
-        // On v1 and v2, the client will assign its character data from the lobby
-        // join command, so it suffices to just resend the join notification.
+        // On v1 and v2, the client will assign its character data from the lobby join command, so it suffices to just
+        // resend the join notification.
         auto s = a.c->require_server_state();
         send_player_leave_notification(l, a.c->lobby_client_id);
         s->send_lobby_join_notifications(l, a.c);
@@ -1628,10 +1619,10 @@ ChatCommandDefinition cc_makeobj(
 
       auto tokens = phosg::split(a.text, ' ');
       if (tokens.size() < 1) {
-        throw runtime_error("not enough arguments");
+        throw std::runtime_error("not enough arguments");
       }
 
-      uint32_t base_type_high = stoul(tokens[0], nullptr, 0) << 16;
+      uint32_t base_type_high = std::stoul(tokens[0], nullptr, 0) << 16;
       VectorXYZF pos = a.c->pos;
       VectorXYZI angle{0, 0, 0};
       VectorXYZF param123{0, 0, 0};
@@ -1639,7 +1630,7 @@ ChatCommandDefinition cc_makeobj(
       for (size_t z = 1; z < tokens.size(); z++) {
         auto subtokens = phosg::split(tokens[z], ':');
         if (subtokens.size() != 2 || subtokens[0].size() != 1) {
-          throw runtime_error("invalid argument: " + tokens[z]);
+          throw std::runtime_error("invalid argument: " + tokens[z]);
         }
         switch (tolower(subtokens[0].front())) {
           case 'X':
@@ -1685,11 +1676,11 @@ ChatCommandDefinition cc_makeobj(
             param456.z = stol(subtokens[1], nullptr, 0);
             break;
           default:
-            throw runtime_error("invalid argument: " + tokens[z]);
+            throw std::runtime_error("invalid argument: " + tokens[z]);
         }
       }
 
-      unordered_map<string, uint32_t> label_writes{
+      std::unordered_map<std::string, uint32_t> label_writes{
           {"base_type_high", base_type_high},
           {"floor_low", a.c->floor},
           {"pos_x", std::bit_cast<uint32_t>(pos.x.load())},
@@ -1708,7 +1699,7 @@ ChatCommandDefinition cc_makeobj(
 
       co_await prepare_client_for_patches(a.c);
       auto s = a.c->require_server_state();
-      auto fn = s->function_code_index->get_patch("CreateObject", a.c->specific_version);
+      auto fn = s->data->client_functions->get("CreateObject", a.c->specific_version);
       co_await send_function_call(a.c, fn, label_writes);
     });
 
@@ -1769,8 +1760,8 @@ ChatCommandDefinition cc_minlevel(
       auto s = a.c->require_server_state();
       bool cheats_allowed = (l->check_flag(Lobby::Flag::CHEATS_ENABLED) ||
           a.c->login->account->check_flag(Account::Flag::CHEAT_ANYWHERE));
-      if (!cheats_allowed && s->cheat_flags.insufficient_minimum_level) {
-        size_t default_min_level = s->default_min_level_for_game(a.c->version(), l->episode, l->difficulty);
+      if (!cheats_allowed && s->data->cheat_flags.insufficient_minimum_level) {
+        size_t default_min_level = s->data->default_min_level_for_game(a.c->version(), l->episode, l->difficulty);
         if (new_min_level < default_min_level) {
           throw precondition_failed("$C6Cannot set minimum\nlevel below {}", default_min_level + 1);
         }
@@ -1786,11 +1777,9 @@ ChatCommandDefinition cc_next(
     +[](const Args& a) -> asio::awaitable<void> {
       a.check_is_game(true);
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_or_allowed(s->cheat_flags.warp);
+      a.check_cheats_enabled_or_allowed(s->data->cheat_flags.warp);
 
-      auto episode = a.c->proxy_session
-          ? a.c->proxy_session->lobby_episode
-          : a.c->require_lobby()->episode;
+      auto episode = a.c->proxy_session ? a.c->proxy_session->lobby_episode : a.c->require_lobby()->episode;
       size_t limit = FloorDefinition::limit_for_episode(episode);
       if (limit > 0) {
         send_warp(a.c, (a.c->floor + 1) % limit, true);
@@ -1812,8 +1801,7 @@ ChatCommandDefinition cc_password(
 
       } else {
         l->password = a.text;
-        string escaped = remove_color(l->password);
-        send_text_message_fmt(l, "$C6Game password:\n{}", escaped);
+        send_text_message_fmt(l, "$C6Game password:\n{}", remove_color(l->password));
       }
       co_return;
     });
@@ -1823,24 +1811,58 @@ ChatCommandDefinition cc_patch(
     +[](const Args& a) -> asio::awaitable<void> {
       auto tokens = phosg::split(a.text, ' ');
       if (tokens.empty()) {
-        throw runtime_error("not enough arguments");
+        throw std::runtime_error("not enough arguments");
       }
 
-      string patch_name = std::move(tokens[0]);
-      unordered_map<string, uint32_t> label_writes;
+      std::string patch_name = std::move(tokens[0]);
+      std::unordered_map<std::string, uint32_t> label_writes;
       for (size_t z = 0; z < tokens.size() - 1; z++) {
-        label_writes.emplace(std::format("arg{}", z), stoul(tokens[z + 1], nullptr, 0));
+        const auto& token = tokens[z + 1];
+        size_t equals_pos = token.find('=');
+        std::string key, value;
+        if (equals_pos == std::string::npos) {
+          key = std::format("arg{}", z);
+          value = token;
+        } else {
+          key = token.substr(0, equals_pos);
+          value = token.substr(equals_pos + 1);
+        }
+        if (value.contains('.')) { // float
+          label_writes.emplace(std::move(key), std::bit_cast<uint32_t>(std::stof(value, nullptr)));
+        } else { // int
+          label_writes.emplace(std::move(key), std::stoul(value, nullptr, 0));
+        }
       }
 
       co_await prepare_client_for_patches(a.c);
       try {
         auto s = a.c->require_server_state();
-        // Note: We can't look this up before prepare_client_for_patches
-        // because specific_version may not be set at that point
-        auto fn = s->function_code_index->get_patch(patch_name, a.c->specific_version);
-        co_await send_function_call(a.c, fn, label_writes);
-      } catch (const out_of_range&) {
-        send_text_message(a.c, "$C6Invalid patch name");
+        // Note: We can't look this up before prepare_client_for_patches because specific_version may not be set
+        auto fn = s->data->client_functions->get(patch_name, a.c->specific_version);
+
+        switch (fn->visibility) {
+          case ClientFunctionIndex::Function::Visibility::DEBUG_ONLY:
+          case ClientFunctionIndex::Function::Visibility::PATCHES_MENU_ONLY:
+            a.check_debug_enabled();
+            break;
+          case ClientFunctionIndex::Function::Visibility::CHAT_COMMAND_ONLY_WITH_CHEAT_MODE:
+            a.check_cheats_enabled_or_allowed(true);
+            break;
+          case ClientFunctionIndex::Function::Visibility::CHAT_COMMAND_ONLY:
+          case ClientFunctionIndex::Function::Visibility::PATCHES_MENU_AND_CHAT_COMMAND:
+            break;
+          default:
+            throw std::logic_error("Invalid client function visibility");
+        }
+
+        auto ret = co_await send_function_call(a.c, fn, label_writes);
+        if (fn->show_return_value) {
+          send_text_message_fmt(a.c, "$C6Return value:$C7\nInt: {}\nHex: {:08X}\nFloat: {:g}",
+              ret.return_value.load(), ret.return_value.load(), std::bit_cast<float>(ret.return_value.load()));
+        }
+
+      } catch (const std::out_of_range&) {
+        send_text_message(a.c, "$C6Invalid function");
       }
       co_return;
     });
@@ -1874,18 +1896,16 @@ ChatCommandDefinition cc_ping(
       if (a.c->proxy_session) {
         a.c->proxy_session->server_ping_start_time = a.c->ping_start_time;
         C_GuildCardSearch_40 cmd = {
-            0x00010000,
-            a.c->proxy_session->remote_guild_card_number,
-            a.c->proxy_session->remote_guild_card_number};
+            0x00010000, a.c->proxy_session->remote_guild_card_number, a.c->proxy_session->remote_guild_card_number};
         a.c->proxy_session->server_channel->send(0x40, 0x00, &cmd, sizeof(cmd));
       }
       co_return;
     });
 
-static string file_path_for_recording(const std::string& args, uint32_t account_id, bool compressed) {
+static std::string file_path_for_recording(const std::string& args, uint32_t account_id, bool compressed) {
   for (char ch : args) {
     if (ch <= 0x20 || ch > 0x7E || ch == '/') {
-      throw runtime_error("invalid recording name");
+      throw std::runtime_error("invalid recording name");
     }
   }
   return std::format("system/ep3/battle-records/{:010}_{}.mzr{}", account_id, args, compressed ? "" : "d");
@@ -1903,24 +1923,25 @@ ChatCommandDefinition cc_playrec(
       } else if (!l->is_game()) {
 
         auto s = a.c->require_server_state();
-        string filename = a.text;
+        std::string filename = a.text;
         bool start_battle_player_immediately = (filename.at(0) != '!');
         if (!start_battle_player_immediately) {
           filename = filename.substr(1);
         }
 
-        string data;
+        std::string data;
         try {
           data = phosg::load_file(file_path_for_recording(filename, a.c->login->account->account_id, false));
         } catch (const phosg::cannot_open_file&) {
           try {
-            data = prs_decompress(phosg::load_file(file_path_for_recording(filename, a.c->login->account->account_id, true)));
+            data = prs_decompress(phosg::load_file(file_path_for_recording(
+                filename, a.c->login->account->account_id, true)));
           } catch (const phosg::cannot_open_file&) {
             throw precondition_failed("$C4The recording does\nnot exist");
           }
         }
-        auto record = make_shared<Episode3::BattleRecord>(data);
-        auto battle_player = make_shared<Episode3::BattleRecordPlayer>(s->io_context, record);
+        auto record = std::make_shared<Episode3::BattleRecord>(data);
+        auto battle_player = std::make_shared<Episode3::BattleRecordPlayer>(s->io_context, record);
         auto game = create_game_generic(
             s, a.c, filename, "", Episode::EP3, GameMode::NORMAL, Difficulty::NORMAL, false, nullptr, battle_player);
         if (game) {
@@ -1945,7 +1966,7 @@ ChatCommandDefinition cc_qcall(
 
       auto l = a.c->require_lobby();
       if (l->is_game() && l->quest) {
-        send_quest_function_call(a.c, stoul(a.text, nullptr, 0));
+        send_quest_function_call(a.c, std::stoul(a.text, nullptr, 0));
       }
       co_return;
     });
@@ -1956,7 +1977,7 @@ ChatCommandDefinition cc_qcheck(
       a.check_is_proxy(false);
 
       auto l = a.c->require_lobby();
-      uint16_t flag_num = stoul(a.text, nullptr, 0);
+      uint16_t flag_num = std::stoul(a.text, nullptr, 0);
 
       if (l->is_game()) {
         if (!l->quest_flags_known || l->quest_flags_known->get(l->difficulty, flag_num)) {
@@ -1979,7 +2000,7 @@ ChatCommandDefinition cc_qcheck(
 
 static void command_qset_qclear(const Args& a, bool should_set) {
   a.check_is_game(true);
-  uint16_t flag_num = stoul(a.text, nullptr, 0);
+  uint16_t flag_num = std::stoul(a.text, nullptr, 0);
 
   if (!a.c->proxy_session) {
     a.check_debug_enabled();
@@ -2039,14 +2060,14 @@ ChatCommandDefinition cc_qfread(
       uint8_t counter_index;
       uint32_t mask;
       try {
-        const auto& def = s->quest_counter_fields.at(a.text);
+        const auto& def = s->data->quest_counter_fields.at(a.text);
         counter_index = def.first;
         mask = def.second;
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         throw precondition_failed("$C4Invalid field name");
       }
       if (mask == 0) {
-        throw runtime_error("invalid quest counter definition");
+        throw std::runtime_error("invalid quest counter definition");
       }
 
       uint32_t counter_value = a.c->character_file()->quest_counters.at(counter_index) & mask;
@@ -2068,7 +2089,7 @@ ChatCommandDefinition cc_qgread(
     {"$qgread"},
     +[](const Args& a) -> asio::awaitable<void> {
       a.check_is_proxy(false);
-      uint8_t counter_num = stoul(a.text, nullptr, 0);
+      uint8_t counter_num = std::stoul(a.text, nullptr, 0);
       const auto& counters = a.c->character_file()->quest_counters;
       if (counter_num >= counters.size()) {
         throw precondition_failed("$C7Counter ID must be\nless than {}", counters.size());
@@ -2096,8 +2117,8 @@ ChatCommandDefinition cc_qgwrite(
         throw precondition_failed("$C6Incorrect number\nof arguments");
       }
 
-      uint8_t counter_num = stoul(tokens[0], nullptr, 0);
-      uint32_t value = stoul(tokens[1], nullptr, 0);
+      uint8_t counter_num = std::stoul(tokens[0], nullptr, 0);
+      uint32_t value = std::stoul(tokens[1], nullptr, 0);
       auto& counters = a.c->character_file()->quest_counters;
       if (counter_num >= counters.size()) {
         throw precondition_failed("$C7Counter ID must be\nless than {}", counters.size());
@@ -2128,10 +2149,10 @@ static void command_qsync_qsyncall(const Args& a, bool send_to_lobby) {
 
   G_SyncQuestRegister_6x77 cmd;
   cmd.header = {0x77, 0x03, 0x0000};
-  cmd.register_number = stoul(tokens[0].substr(1), nullptr, 0);
+  cmd.register_number = std::stoul(tokens[0].substr(1), nullptr, 0);
   cmd.unused = 0;
   if (tokens[0][0] == 'r') {
-    cmd.value.as_int = stoul(tokens[1], nullptr, 0);
+    cmd.value.as_int = std::stoul(tokens[1], nullptr, 0);
   } else if (tokens[0][0] == 'f') {
     cmd.value.as_float = stof(tokens[1]);
   } else {
@@ -2168,7 +2189,7 @@ ChatCommandDefinition cc_quest(
       a.check_is_game(true);
 
       auto s = a.c->require_server_state();
-      auto q = s->quest_index->get(stoul(a.text));
+      auto q = s->data->quest_index->get(stoul(a.text));
       if (!q) {
         throw precondition_failed("$C6Quest not found");
       }
@@ -2208,10 +2229,19 @@ ChatCommandDefinition cc_fastkill(
         send_text_message(a.c, "$C6Fast kills disabled");
       } else {
         auto s = a.c->require_server_state();
-        a.check_cheats_enabled_or_allowed(s->cheat_flags.fast_kills);
+        a.check_cheats_enabled_or_allowed(s->data->cheat_flags.fast_kills);
         a.c->set_flag(Client::Flag::FAST_KILLS_ENABLED);
         send_text_message(a.c, "$C6Fast kills enabled");
       }
+      co_return;
+    });
+ChatCommandDefinition cc_allrare(
+    {"$allrare"},
+    +[](const Args& a) -> asio::awaitable<void> {
+      a.check_debug_enabled();
+      a.c->toggle_flag(Client::Flag::ALL_RARES_ENABLED);
+      send_text_message_fmt(
+          a.c, "$C6All-rares {}", a.c->check_flag(Client::Flag::ALL_RARES_ENABLED) ? "enabled" : "disabled");
       co_return;
     });
 
@@ -2221,7 +2251,7 @@ ChatCommandDefinition cc_rand(
       auto s = a.c->require_server_state();
       auto l = a.c->require_lobby();
       a.check_is_game(false);
-      a.check_cheats_enabled_or_allowed(s->cheat_flags.override_random_seed);
+      a.check_cheats_enabled_or_allowed(s->data->cheat_flags.override_random_seed);
 
       if (a.text.empty()) {
         a.c->override_random_seed = -1;
@@ -2248,29 +2278,24 @@ ChatCommandDefinition cc_readmem(
     +[](const Args& a) -> asio::awaitable<void> {
       a.check_debug_enabled();
 
-      uint32_t addr = stoul(a.text, nullptr, 16);
+      uint32_t addr = std::stoul(a.text, nullptr, 16);
       if (!console_address_in_range(a.c->version(), addr)) {
         throw precondition_failed("$C4Address out of\nrange");
       }
 
       co_await prepare_client_for_patches(a.c);
 
-      shared_ptr<const CompiledFunctionCode> fn;
+      std::shared_ptr<const ClientFunctionIndex::Function> fn;
       try {
         auto s = a.c->require_server_state();
-        const char* function_name = is_dc(a.c->version())
-            ? "ReadMemoryWordDC"
-            : is_gc(a.c->version())
-            ? "ReadMemoryWordGC"
-            : "ReadMemoryWordX86";
-        fn = s->function_code_index->name_to_function.at(function_name);
-      } catch (const out_of_range&) {
+        fn = s->data->client_functions->get("ReadMemoryWord", a.c->specific_version);
+      } catch (const std::out_of_range&) {
         throw precondition_failed("Invalid patch name");
       }
 
-      unordered_map<string, uint32_t> label_writes{{"address", addr}};
+      std::unordered_map<std::string, uint32_t> label_writes{{"address", addr}};
       auto res = co_await send_function_call(a.c, fn, label_writes);
-      string data_str;
+      std::string data_str;
       if (is_big_endian(a.c->version())) {
         be_uint32_t v = res.return_value.load();
         data_str = phosg::format_data_string(&v, sizeof(v));
@@ -2301,31 +2326,53 @@ ChatCommandDefinition cc_savechar(
       co_return;
     });
 
+ChatCommandDefinition cc_savefiles(
+    {"$savefiles"},
+    +[](const Args& a) -> asio::awaitable<void> {
+      a.check_is_proxy(true);
+
+      auto s = a.c->require_server_state();
+      if (!s->data->proxy_allow_save_files) {
+        send_text_message(a.c, "$C6Save files is not\nallowed");
+      } else if (a.c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
+        a.c->clear_flag(Client::Flag::PROXY_SAVE_FILES);
+        send_text_message(a.c, "$C6Save files disabled");
+      } else {
+        auto s = a.c->require_server_state();
+        a.c->set_flag(Client::Flag::PROXY_SAVE_FILES);
+        send_text_message(a.c, "$C6Save files enabled");
+      }
+      co_return;
+    });
+
 ChatCommandDefinition cc_saverec(
     {"$saverec"},
     +[](const Args& a) -> asio::awaitable<void> {
-      // TODO: We can probably support this on the proxy server, but it would
-      // only include CA commands from the local player
+      // TODO: We can support this on the proxy server, but it would only include CA commands from the local player
       a.check_is_proxy(false);
       if (!a.c->ep3_prev_battle_record) {
         throw precondition_failed("$C4No finished\nrecording is\npresent");
       }
-      string file_path = file_path_for_recording(a.text, a.c->login->account->account_id, false);
-      string data = a.c->ep3_prev_battle_record->serialize();
-      phosg::save_file(file_path, data);
+      phosg::save_file(
+          file_path_for_recording(a.text, a.c->login->account->account_id, false),
+          a.c->ep3_prev_battle_record->serialize());
       send_text_message(a.c, "$C7Recording saved");
       a.c->ep3_prev_battle_record.reset();
       co_return;
     });
 
-static asio::awaitable<void> command_send_command(const Args& a, bool to_client, bool to_server) {
+static asio::awaitable<void> command_send_command(const Args& a, bool to_client, bool to_server, bool send_protected) {
   if (!a.c->proxy_session) {
     a.check_debug_enabled();
   }
-  string data = phosg::parse_data_string(a.text);
+  std::string data = phosg::parse_data_string(a.text);
   data.resize((data.size() + 3) & (~3));
   if (to_client) {
-    a.c->channel->send(data);
+    if (send_protected) {
+      co_await send_protected_command(a.c, data.data(), data.size(), false);
+    } else {
+      a.c->channel->send(data);
+    }
   }
   if (to_server) {
     if (a.c->proxy_session) {
@@ -2340,20 +2387,26 @@ static asio::awaitable<void> command_send_command(const Args& a, bool to_client,
 ChatCommandDefinition cc_sb(
     {"$sb"},
     +[](const Args& a) -> asio::awaitable<void> {
-      return command_send_command(a, true, true);
+      return command_send_command(a, true, true, false);
     });
 
 ChatCommandDefinition cc_sc(
     {"$sc"},
     +[](const Args& a) -> asio::awaitable<void> {
-      return command_send_command(a, true, false);
+      return command_send_command(a, true, false, false);
+    });
+
+ChatCommandDefinition cc_scp(
+    {"$scp"},
+    +[](const Args& a) -> asio::awaitable<void> {
+      return command_send_command(a, true, false, true);
     });
 
 ChatCommandDefinition cc_secid(
     {"$secid"},
     +[](const Args& a) -> asio::awaitable<void> {
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_or_allowed(s->cheat_flags.override_section_id);
+      a.check_cheats_enabled_or_allowed(s->data->cheat_flags.override_section_id);
 
       uint8_t new_override_section_id;
       if (a.text.empty()) {
@@ -2386,11 +2439,11 @@ ChatCommandDefinition cc_setassist(
       a.check_is_game(true);
       a.check_is_ep3(true);
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_in_game(s->cheat_flags.ep3_replace_assist);
+      a.check_cheats_enabled_in_game(s->data->cheat_flags.ep3_replace_assist);
 
       auto l = a.c->require_lobby();
       if (l->episode != Episode::EP3) {
-        throw logic_error("non-Ep3 client in Ep3 game");
+        throw std::logic_error("non-Ep3 client in Ep3 game");
       }
       if (!l->ep3_server) {
         throw precondition_failed("$C6Episode 3 server\nis not initialized");
@@ -2403,10 +2456,10 @@ ChatCommandDefinition cc_setassist(
       }
 
       size_t client_id;
-      string card_name;
+      std::string card_name;
       if (isdigit(a.text[0])) {
         auto tokens = phosg::split(a.text, ' ', 1);
-        client_id = stoul(tokens.at(0), nullptr, 0) - 1;
+        client_id = std::stoul(tokens.at(0), nullptr, 0) - 1;
         card_name = tokens.at(1);
       } else {
         client_id = a.c->lobby_client_id;
@@ -2416,10 +2469,10 @@ ChatCommandDefinition cc_setassist(
         throw precondition_failed("$C6Invalid client ID");
       }
 
-      shared_ptr<const Episode3::CardIndex::CardEntry> ce;
+      std::shared_ptr<const Episode3::CardIndex::CardEntry> ce;
       try {
         ce = l->ep3_server->options.card_index->definition_for_name_normalized(card_name);
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         throw precondition_failed("$C6Card not found");
       }
       if (ce->def.type != Episode3::CardType::ASSIST) {
@@ -2433,7 +2486,7 @@ ChatCommandDefinition cc_server_info(
     {"$si"},
     +[](const Args& a) -> asio::awaitable<void> {
       auto s = a.c->require_server_state();
-      string uptime_str = phosg::format_duration(phosg::now() - s->creation_time);
+      std::string uptime_str = phosg::format_duration(phosg::now() - s->data->creation_time);
       send_text_message_fmt(a.c,
           "Uptime: $C6{}$C7\nLobbies: $C6{}$C7\nClients: $C6{}$C7(g) $C6{}$C7(p)",
           uptime_str,
@@ -2452,7 +2505,7 @@ ChatCommandDefinition cc_silence(
       auto s = a.c->require_server_state();
       auto target = s->find_client(&a.text);
       if (!target->login) {
-        // this should be impossible, but I'll bet it's not actually
+        // This should be impossible, but I'll bet it's not actually
         throw precondition_failed("$C6Client not logged in");
       }
 
@@ -2461,7 +2514,7 @@ ChatCommandDefinition cc_silence(
       }
 
       target->can_chat = !target->can_chat;
-      string target_name = name_for_client(target);
+      std::string target_name = name_for_client(target);
       send_text_message_fmt(a.c, "$C6{} {}silenced", target_name, target->can_chat ? "un" : "");
       co_return;
     });
@@ -2476,7 +2529,7 @@ ChatCommandDefinition cc_song(
         song = -song;
         send_ep3_change_music(a.c->proxy_session->server_channel, song);
       }
-      send_ep3_change_music(a.c->channel, stoul(a.text, nullptr, 0));
+      send_ep3_change_music(a.c->channel, std::stoul(a.text, nullptr, 0));
       co_return;
     });
 
@@ -2484,7 +2537,7 @@ ChatCommandDefinition cc_sound(
     {"$sound"},
     +[](const Args& a) -> asio::awaitable<void> {
       bool echo_to_all = (!a.text.empty() && a.text[0] == '!');
-      uint32_t sound_id = stoul(echo_to_all ? a.text.substr(1) : a.text, nullptr, 16);
+      uint32_t sound_id = std::stoul(echo_to_all ? a.text.substr(1) : a.text, nullptr, 16);
 
       auto l = a.c->require_lobby();
       uint8_t area = l->is_game() ? l->area_for_floor(a.c->version(), a.c->floor) : 0x0F;
@@ -2509,12 +2562,11 @@ ChatCommandDefinition cc_spec(
       a.check_is_ep3(true);
       auto l = a.c->require_lobby();
       if (!l->is_ep3()) {
-        throw logic_error("Episode 3 client in non-Episode 3 game");
+        throw std::logic_error("Episode 3 client in non-Episode 3 game");
       }
 
-      // In non-tournament games, only the leader can do this; in a tournament
-      // match, the players don't have control over who the leader is, so we allow
-      // all players to use this command
+      // In non-tournament games, only the leader can do this; in a tournament match, the players don't have control
+      // over who the leader is, so we allow all players to use this command
       if (!l->tournament_match) {
         a.check_is_leader();
       }
@@ -2541,7 +2593,7 @@ ChatCommandDefinition cc_spec(
 ChatCommandDefinition cc_ss(
     {"$ss"},
     +[](const Args& a) -> asio::awaitable<void> {
-      return command_send_command(a, false, true);
+      return command_send_command(a, false, true, false);
     });
 
 ChatCommandDefinition cc_stat(
@@ -2552,7 +2604,7 @@ ChatCommandDefinition cc_stat(
       a.check_is_ep3(true);
       auto l = a.c->require_lobby();
       if (l->episode != Episode::EP3) {
-        throw logic_error("non-Ep3 client in Ep3 game");
+        throw std::logic_error("non-Ep3 client in Ep3 game");
       }
       if (!l->ep3_server) {
         throw precondition_failed("$C6Episode 3 server\nis not initialized");
@@ -2566,7 +2618,7 @@ ChatCommandDefinition cc_stat(
       }
       uint8_t team_id = ps->get_team_id();
       if (team_id > 1) {
-        throw logic_error("team ID is incorrect");
+        throw std::logic_error("team ID is incorrect");
       }
 
       if (a.text == "rank") {
@@ -2575,8 +2627,8 @@ ChatCommandDefinition cc_stat(
         const char* rank_name = ps->stats.name_for_rank(rank);
         send_text_message_fmt(a.c, "$C7Score: {:g}\nRank: {} ({})", score, rank, rank_name);
       } else if (a.text == "duration") {
-        string s = phosg::format_duration(phosg::now() - l->ep3_server->battle_start_usecs);
-        send_text_message_fmt(a.c, "$C7Duration: {}", s);
+        send_text_message_fmt(a.c, "$C7Duration: {}",
+            phosg::format_duration(phosg::now() - l->ep3_server->battle_start_usecs));
       } else if (a.text == "fcs-destroyed") {
         send_text_message_fmt(a.c, "$C7Team FCs destroyed:\n{}", l->ep3_server->team_num_ally_fcs_destroyed[team_id]);
       } else if (a.text == "cards-destroyed") {
@@ -2633,7 +2685,7 @@ ChatCommandDefinition cc_surrender(
       a.check_is_ep3(true);
       auto l = a.c->require_lobby();
       if (l->episode != Episode::EP3) {
-        throw logic_error("non-Ep3 client in Ep3 game");
+        throw std::logic_error("non-Ep3 client in Ep3 game");
       }
       if (!l->ep3_server) {
         throw precondition_failed("$C6Episode 3 server\nis not initialized");
@@ -2645,7 +2697,7 @@ ChatCommandDefinition cc_surrender(
       if (!ps || !ps->is_alive()) {
         throw precondition_failed("$C6Defeated players\ncannot surrender");
       }
-      string name = remove_color(a.c->character_file()->disp.name.decode(a.c->language()));
+      std::string name = remove_color(a.c->character_file()->disp.visual.name.decode(a.c->language()));
       send_text_message_fmt(l, "$C6{} has\nsurrendered", name);
       for (const auto& watcher_l : l->watcher_lobbies) {
         send_text_message_fmt(watcher_l, "$C6{} has\nsurrendered", name);
@@ -2662,8 +2714,8 @@ ChatCommandDefinition cc_swa(
       a.check_is_game(true);
 
       a.c->toggle_flag(Client::Flag::SWITCH_ASSIST_ENABLED);
-      send_text_message_fmt(a.c, "$C6Switch assist {}",
-          a.c->check_flag(Client::Flag::SWITCH_ASSIST_ENABLED) ? "enabled" : "disabled");
+      bool enabled = a.c->check_flag(Client::Flag::SWITCH_ASSIST_ENABLED);
+      send_text_message_fmt(a.c, "$C6Switch assist {}", enabled ? "enabled" : "disabled");
       co_return;
     });
 
@@ -2675,10 +2727,10 @@ static void command_swset_swclear(const Args& a, bool should_set) {
   uint8_t floor, flag_num;
   if (tokens.size() == 1) {
     floor = a.c->floor;
-    flag_num = stoul(tokens[0], nullptr, 0);
+    flag_num = std::stoul(tokens[0], nullptr, 0);
   } else if (tokens.size() == 2) {
-    floor = stoul(tokens[0], nullptr, 0);
-    flag_num = stoul(tokens[1], nullptr, 0);
+    floor = std::stoul(tokens[0], nullptr, 0);
+    flag_num = std::stoul(tokens[1], nullptr, 0);
   } else {
     throw precondition_failed("$C4Incorrect parameters");
   }
@@ -2775,15 +2827,12 @@ ChatCommandDefinition cc_switchchar(
       a.c->bb_character_index = index;
       a.c->bb_bank_character_index = index;
 
-      // TODO: This can trigger a client bug where the previous character's
-      // name label object isn't deleted if the leave and join notifications
-      // are received on the same frame. This results in the receiving player
-      // seeing both labels over the new character, with the latest one
-      // appearing on top. We could fix this by requiring each recipient to
-      // reply to a ping between the two commands, similar to how the 64 and
-      // 6x6D commands are split during game joining, but implementing that
-      // here seems not worth the effort given the low likelihood and impact of
-      // this bug.
+      // TODO: This can trigger a client bug where the previous character's name label object isn't deleted if the
+      // leave and join notifications are received on the same frame. This results in the receiving player seeing both
+      // labels over the new character, with the latest one appearing on top. We could fix this by requiring each
+      // recipient to reply to a ping between the two commands, similar to how the 64 and 6x6D commands are split
+      // during game joining, but implementing that here seems not worth the effort given the low likelihood and impact
+      // of this bug.
       send_complete_player_bb(a.c);
       send_player_leave_notification(l, a.c->lobby_client_id);
       s->send_lobby_join_notifications(l, a.c);
@@ -2798,10 +2847,10 @@ ChatCommandDefinition cc_unset(
       a.check_is_game(true);
       a.check_is_ep3(true);
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_in_game(s->cheat_flags.ep3_unset_field_character);
+      a.check_cheats_enabled_in_game(s->data->cheat_flags.ep3_unset_field_character);
       auto l = a.c->require_lobby();
       if (l->episode != Episode::EP3) {
-        throw logic_error("non-Ep3 client in Ep3 game");
+        throw std::logic_error("non-Ep3 client in Ep3 game");
       }
       if (!l->ep3_server) {
         throw precondition_failed("$C6Episode 3 server\nis not initialized");
@@ -2822,16 +2871,14 @@ ChatCommandDefinition cc_unset(
 ChatCommandDefinition cc_variations(
     {"$variations"},
     +[](const Args& a) -> asio::awaitable<void> {
-      // Note: This command is intentionally undocumented, since it's primarily used
-      // for testing. If we ever make it public, we should add some kind of user
-      // feedback (currently it sends no message when it runs).
+      // Note: This command is intentionally undocumented, since it's primarily used for testing
       a.check_is_proxy(false);
       a.check_is_game(false);
       auto s = a.c->require_server_state();
-      a.check_cheats_enabled_in_game(s->cheat_flags.override_variations);
+      a.check_cheats_enabled_in_game(s->data->cheat_flags.override_variations);
 
-      a.c->override_variations = make_unique<Variations>();
-      for (size_t z = 0; z < min<size_t>(a.c->override_variations->entries.size() * 2, a.text.size()); z++) {
+      a.c->override_variations = std::make_unique<Variations>();
+      for (size_t z = 0; z < std::min<size_t>(a.c->override_variations->entries.size() * 2, a.text.size()); z++) {
         auto& entry = a.c->override_variations->entries.at(z / 2);
         if (z & 1) {
           entry.entities = a.text[z] - '0';
@@ -2847,16 +2894,14 @@ ChatCommandDefinition cc_variations(
 static void command_warp(const Args& a, bool is_warpall) {
   a.check_is_game(true);
   auto s = a.c->require_server_state();
-  a.check_cheats_enabled_or_allowed(s->cheat_flags.warp);
+  a.check_cheats_enabled_or_allowed(s->data->cheat_flags.warp);
 
-  uint32_t floor = stoul(a.text, nullptr, 0);
+  uint32_t floor = std::stoul(a.text, nullptr, 0);
   if (!is_warpall && (a.c->floor == floor)) {
     return;
   }
 
-  Episode episode = a.c->proxy_session
-      ? a.c->proxy_session->lobby_episode
-      : a.c->require_lobby()->episode;
+  Episode episode = a.c->proxy_session ? a.c->proxy_session->lobby_episode : a.c->require_lobby()->episode;
   size_t limit = FloorDefinition::limit_for_episode(episode);
   if (limit == 0) {
     return;
@@ -2905,7 +2950,7 @@ ChatCommandDefinition cc_what(
         co_return;
       }
 
-      shared_ptr<const Lobby::FloorItem> nearest_fi;
+      std::shared_ptr<const Lobby::FloorItem> nearest_fi;
       float min_dist2 = 0.0f;
       for (const auto& it : l->floor_item_managers.at(a.c->floor).items) {
         if (!it.second->visible_to_client(a.c->lobby_client_id)) {
@@ -2922,15 +2967,16 @@ ChatCommandDefinition cc_what(
         throw precondition_failed("$C4No items are near you");
       } else {
         auto s = a.c->require_server_state();
-        string name = s->describe_item(a.c->version(), nearest_fi->data, ItemNameIndex::Flag::INCLUDE_PSO_COLOR_ESCAPES);
-        send_text_message(a.c, name);
+        send_text_message(
+            a.c,
+            s->data->describe_item(a.c->version(), nearest_fi->data, ItemNameIndex::Flag::INCLUDE_PSO_COLOR_ESCAPES));
       }
       co_return;
     });
 
 static void whatobj_whatene_fn(const Args& a, bool include_objs, bool include_enes) {
-  // TODO: This probably wouldn't be too hard to implement for proxy sessions.
-  // We already have the map and most of the lobby metadata (episode, etc.)
+  // TODO: This probably wouldn't be too hard to implement for proxy sessions. We already have the map and most of the
+  // lobby metadata (episode, etc.)
   a.check_is_proxy(false);
   a.check_is_game(true);
   auto l = a.c->require_lobby();
@@ -2950,17 +2996,17 @@ static void whatobj_whatene_fn(const Args& a, bool include_objs, bool include_en
 
   double min_dist2 = -1.0;
   VectorXYZF nearest_worldspace_pos;
-  shared_ptr<const MapState::ObjectState> nearest_obj;
-  shared_ptr<const MapState::EnemyState> nearest_ene;
+  std::shared_ptr<const MapState::ObjectState> nearest_obj;
+  std::shared_ptr<const MapState::EnemyState> nearest_ene;
 
   auto check_entity = [&](auto& nearest_entity, auto entity, const auto& def) -> void {
     VectorXYZF worldspace_pos;
     if (l->episode != Episode::EP3) {
       try {
-        const auto& room = s->room_layout_index->get_room(area, layout_var, def.set_entry->room);
+        const auto& room = s->data->room_layout_index->get_room(area, layout_var, def.set_entry->room);
         // This is the order in which the game does the rotations; not sure why
         worldspace_pos = def.set_entry->pos.rotate_x(room.angle.x).rotate_z(room.angle.z).rotate_y(room.angle.y) + room.position;
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         a.c->log.warning_f("Can't find definition for room {:02X}:{:02X}:{:08X}", area, layout_var, def.set_entry->room);
         worldspace_pos = def.set_entry->pos;
       }
@@ -2997,12 +3043,11 @@ static void whatobj_whatene_fn(const Args& a, bool include_objs, bool include_en
     }
   }
 
-  // Since we check all objects first, nearest_ene will only be set if
-  // there is an enemy closer than all objects. So, we print that if it's
-  // set, and print the object if not.
+  // Since we check all objects first, nearest_ene will only be set if there is an enemy closer than all objects. So,
+  // we print that if it's set, and print the object if not.
   if (nearest_ene) {
     const auto* set_entry = nearest_ene->super_ene->version(a.c->version()).set_entry;
-    string type_name = MapFile::name_for_enemy_type(set_entry->base_type, a.c->version(), area);
+    std::string type_name = MapFile::name_for_enemy_type(set_entry->base_type, a.c->version(), area);
     uint8_t area = l->area_for_floor(a.c->version(), a.c->floor);
     send_text_message_fmt(a.c, "$C5E-{:03X}\n$C6{}\n$C2{}\n$C7X:{:.2f} Z:{:.2f}",
         nearest_ene->e_id, phosg::name_for_enum(nearest_ene->type(a.c->version(), area, l->difficulty, l->event)),
@@ -3066,7 +3111,7 @@ ChatCommandDefinition cc_where(
       if (!a.c->proxy_session && l && l->is_game()) {
         for (auto lc : l->clients) {
           if (lc && (lc != a.c)) {
-            string name = lc->character_file()->disp.name.decode(lc->language());
+            std::string name = lc->character_file()->disp.visual.name.decode(lc->language());
             send_text_message_fmt(a.c, "$C6{}$C7 {:X}:{}",
                 name, lc->floor, FloorDefinition::get(l->episode, lc->floor).short_name);
           }
@@ -3085,7 +3130,7 @@ ChatCommandDefinition cc_writemem(
         throw precondition_failed("Incorrect arguments");
       }
 
-      uint32_t addr = stoul(tokens[0], nullptr, 16);
+      uint32_t addr = std::stoul(tokens[0], nullptr, 16);
       if (!console_address_in_range(a.c->version(), addr)) {
         throw precondition_failed("$C4Address out of\nrange");
       }
@@ -3097,15 +3142,10 @@ ChatCommandDefinition cc_writemem(
 
       try {
         auto s = a.c->require_server_state();
-        const char* function_name = is_dc(a.c->version())
-            ? "WriteMemoryDC"
-            : is_gc(a.c->version())
-            ? "WriteMemoryGC"
-            : "WriteMemoryX86";
-        auto fn = s->function_code_index->name_to_function.at(function_name);
-        unordered_map<string, uint32_t> label_writes{{"dest_addr", addr}, {"size", data.size()}};
+        auto fn = s->data->client_functions->get("WriteMemory", a.c->specific_version);
+        std::unordered_map<std::string, uint32_t> label_writes{{"dest_addr", addr}, {"size", data.size()}};
         co_await send_function_call(a.c, fn, label_writes, data.data(), data.size());
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         throw precondition_failed("Invalid patch name");
       }
       co_return;
@@ -3116,10 +3156,9 @@ ChatCommandDefinition cc_nativecall(
     +[](const Args& a) -> asio::awaitable<void> {
       a.check_debug_enabled();
 
-      // TODO: $nativecall is not implemented on x86 (yet) because there are
-      // multiple calling conventions used within the executable (at least on
-      // Xbox and BB), so we would need a way to specify which calling
-      // convention to use, which would be annoying
+      // TODO: $nativecall is not implemented on x86 (yet) because there are multiple calling conventions used within
+      // the executable (at least on Xbox and BB), so we would need a way to specify which calling convention to use,
+      // which would be annoying
       if (is_x86(a.c->version())) {
         throw precondition_failed("Command not supported\non x86 clients");
       }
@@ -3129,12 +3168,12 @@ ChatCommandDefinition cc_nativecall(
         throw precondition_failed("Incorrect arguments");
       }
 
-      uint32_t addr = stoul(tokens[0], nullptr, 16);
+      uint32_t addr = std::stoul(tokens[0], nullptr, 16);
       if (!console_address_in_range(a.c->version(), addr)) {
         throw precondition_failed("$C4Function address\nout of range");
       }
 
-      unordered_map<string, uint32_t> label_writes{{"call_addr", addr}};
+      std::unordered_map<std::string, uint32_t> label_writes{{"call_addr", addr}};
       for (size_t z = 0; z < tokens.size() - 1; z++) {
         label_writes.emplace(std::format("arg{}", z), stoull(tokens[z + 1], nullptr, 16));
       }
@@ -3143,29 +3182,24 @@ ChatCommandDefinition cc_nativecall(
 
       try {
         auto s = a.c->require_server_state();
-        const char* function_name = is_dc(a.c->version())
-            ? "CallNativeFunctionDC"
-            : is_gc(a.c->version())
-            ? "CallNativeFunctionGC"
-            : "CallNativeFunctionX86";
-        auto fn = s->function_code_index->name_to_function.at(function_name);
+        auto fn = s->data->client_functions->get("CallNativeFunction", a.c->specific_version);
         co_await send_function_call(a.c, fn, label_writes);
-      } catch (const out_of_range&) {
+      } catch (const std::out_of_range&) {
         throw precondition_failed("Invalid patch name");
       }
       co_return;
     });
 
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Dispatch methods
 
 struct SplitCommand {
-  string name;
-  string args;
+  std::string name;
+  std::string args;
 
-  SplitCommand(const string& text) {
+  SplitCommand(const std::string& text) {
     size_t space_pos = text.find(' ');
-    if (space_pos != string::npos) {
+    if (space_pos != std::string::npos) {
       this->name = text.substr(0, space_pos);
       this->args = text.substr(space_pos + 1);
     } else {
@@ -3174,23 +3208,21 @@ struct SplitCommand {
   }
 };
 
-// This function is called every time any player sends a chat beginning with a
-// dollar sign. It is this function's responsibility to see if the chat is a
-// command, and to execute the command and block the chat if it is.
+// This function is called every time any player sends a chat message beginning with $. It is this function's
+// responsibility to see if the chat is a command, and to execute the command and block the chat if it is.
 asio::awaitable<void> on_chat_command(std::shared_ptr<Client> c, const std::string& text, bool check_permissions) {
   SplitCommand cmd(text);
 
-  // This function is only called by on_06 if it looks like a chat command
-  // (starts with $, or @ on 11/2000), so we just normalize all commands to $
-  // here
-  if (!cmd.name.empty() && cmd.name[0] == '@') {
+  // This function is only called by on_06 if it looks like a chat command (starts with $, or @ on 11/2000, or
+  // s->chat_command_sentinel if overridden), so we just normalize all commands to $ here
+  if (!cmd.name.empty()) {
     cmd.name[0] = '$';
   }
 
   const ChatCommandDefinition* def = nullptr;
   try {
     def = ChatCommandDefinition::all_defs.at(cmd.name);
-  } catch (const out_of_range&) {
+  } catch (const std::out_of_range&) {
   }
   if (!def) {
     send_text_message(c, "$C6Unknown command");
@@ -3201,7 +3233,7 @@ asio::awaitable<void> on_chat_command(std::shared_ptr<Client> c, const std::stri
     co_await def->handler(Args{cmd.args, check_permissions, c});
   } catch (const precondition_failed& e) {
     send_text_message(c, e.what());
-  } catch (const exception& e) {
+  } catch (const std::exception& e) {
     send_text_message(c, "$C6Failed:\n" + remove_color(e.what()));
   }
 }

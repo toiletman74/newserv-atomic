@@ -29,17 +29,15 @@
 #include "ReceiveSubcommands.hh"
 #include "SendCommands.hh"
 
-using namespace std;
-
 enum class HandlerResult {
   FORWARD = 0,
   SUPPRESS,
   MODIFIED,
 };
 
-typedef asio::awaitable<HandlerResult> (*on_message_t)(shared_ptr<Client> c, Channel::Message& msg);
+typedef asio::awaitable<HandlerResult> (*MessageHandler)(std::shared_ptr<Client> c, Channel::Message& msg);
 
-static void forward_command(shared_ptr<Client> c, bool to_server, const Channel::Message& msg, bool print_contents = true) {
+static void forward_command(std::shared_ptr<Client> c, bool to_server, const Channel::Message& msg, bool print_contents = true) {
   auto ch = to_server ? (c->proxy_session ? c->proxy_session->server_channel : nullptr) : c->channel;
   if (!ch || !ch->connected()) {
     proxy_server_log.warning_f("No endpoint is present; dropping command");
@@ -48,48 +46,45 @@ static void forward_command(shared_ptr<Client> c, bool to_server, const Channel:
   }
 }
 
-// Command handlers. These are called to preprocess or react to specific
-// commands in either direction. The functions have abbreviated names in order
-// to make the massive table more readable. The functions' names are, in
-// general, <SC>_[VERSIONS]_<COMMAND-NUMBERS>, where <SC> denotes who sent the
-// command, VERSIONS denotes which versions this handler is for (with shortcuts
-// - so v123 refers to all non-BB versions, for example, and DGX refers to all
-// console versions), and COMMAND-NUMBERS are the hexadecimal value in the
-// command header field that this handler is called for. If VERSIONS is omitted,
-// the command handler is for all versions (for example, the 97 handler is like
-// this).
+// Command handlers. These are called to preprocess or react to specific commands in either direction. The functions
+// have abbreviated names in order to make the massive table more readable. The functions' names are, in general,
+// <SC>_[VERSIONS]_<COMMAND-NUMBERS>, where <SC> denotes who sent the command, VERSIONS denotes which versions this
+// handler is for (with shortcuts - so v123 refers to all non-BB versions, for example, and DGX refers to all console
+// versions), and COMMAND-NUMBERS are the hexadecimal value in the command header field that this handler is called
+// for. If VERSIONS is omitted, the command handler is for all versions (for example, the 97 handler is like this).
 
-static asio::awaitable<HandlerResult> default_handler(shared_ptr<Client>, Channel::Message&) {
+static asio::awaitable<HandlerResult> default_handler(std::shared_ptr<Client>, Channel::Message&) {
   co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_invalid(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_invalid(std::shared_ptr<Client> c, Channel::Message& msg) {
   c->log.error_f("Server sent invalid command");
-  string error_str = is_v4(c->version())
+  std::string error_str = is_v4(c->version())
       ? std::format("Server sent invalid\ncommand: {:04X} {:08X}", msg.command, msg.flag)
       : std::format("Server sent invalid\ncommand: {:02X} {:02X}", msg.command, msg.flag);
   c->proxy_session->server_channel->disconnect();
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> C_1D(shared_ptr<Client> c, Channel::Message&) {
+static asio::awaitable<HandlerResult> C_1D(std::shared_ptr<Client> c, Channel::Message&) {
   if (c->ping_start_time) {
     uint64_t ping_usecs = phosg::now() - c->ping_start_time;
     c->ping_start_time = 0;
     double ping_ms = static_cast<double>(ping_usecs) / 1000.0;
     send_text_message_fmt(c->channel, "To proxy: {:g}ms", ping_ms);
+    co_return HandlerResult::SUPPRESS;
+  } else {
+    co_return HandlerResult::FORWARD;
   }
-  co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_1D(shared_ptr<Client> c, Channel::Message&) {
-  c->proxy_session->server_channel->send(0x1D);
-  co_return HandlerResult::SUPPRESS;
+static asio::awaitable<HandlerResult> S_1D(std::shared_ptr<Client>, Channel::Message&) {
+  co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_97(shared_ptr<Client> c, Channel::Message&) {
-  // We always assume a 97 has already been received by the client - we should
-  // have sent 97 01 before sending the client to the proxy server.
+static asio::awaitable<HandlerResult> S_97(std::shared_ptr<Client> c, Channel::Message&) {
+  // We always assume a 97 has already been received by the client - we should have sent 97 01 before sending the
+  // client to the proxy server.
   c->proxy_session->server_channel->send(0xB1, 0x00);
   co_return HandlerResult::SUPPRESS;
 }
@@ -207,10 +202,9 @@ static void send_9E_XB_to_server(std::shared_ptr<Client> c) {
   c->proxy_session->server_channel->send(0x9E, 0x01, &cmd, sizeof(C_LoginExtended_XB_9E));
 }
 
-static asio::awaitable<HandlerResult> S_G_9A(shared_ptr<Client> c, Channel::Message&) {
-  // TODO: Either delete this handler or finish implementing it (flag=00/02
-  // should do the below, 01 should send 9C, anything else should end the
-  // session)
+static asio::awaitable<HandlerResult> S_G_9A(std::shared_ptr<Client> c, Channel::Message&) {
+  // TODO: Either delete this handler or finish implementing it (flag=00/02 should do the below, 01 should send 9C,
+  // anything else should end the session)
   C_LoginExtended_GC_9E cmd;
   if (c->proxy_session->remote_guild_card_number < 0) {
     cmd.player_tag = 0xFFFF0000;
@@ -232,8 +226,7 @@ static asio::awaitable<HandlerResult> S_G_9A(shared_ptr<Client> c, Channel::Mess
   cmd.login_character_name.encode(c->login_character_name, c->language());
   cmd.client_config = c->proxy_session->remote_client_config_data;
 
-  // If there's a guild card number, a shorter 9E is sent that ends
-  // right after the client config data
+  // If there's a guild card number, a shorter 9E is sent that ends right after the client config data
   c->proxy_session->server_channel->send(
       0x9E, 0x01, &cmd,
       cmd.is_extended ? sizeof(C_LoginExtended_GC_9E) : sizeof(C_Login_PC_GC_9E));
@@ -241,27 +234,25 @@ static asio::awaitable<HandlerResult> S_G_9A(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_V123U_02_17(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_V123U_02_17(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (is_patch(c->version()) && msg.command == 0x17) {
-    throw invalid_argument("patch server sent 17 server init");
+    throw std::invalid_argument("patch server sent 17 server init");
   }
 
-  // Most servers don't include after_message or have a shorter
-  // after_message than newserv does, so don't require it
+  // Most servers don't include after_message or have a shorter after_message than newserv does, so don't require it
   const auto& cmd = msg.check_size_t<S_ServerInitDefault_DC_PC_V3_02_17_91_9B>(0xFFFF);
 
   // This isn't forwarded to the client, so don't recreate the client's crypts
   if (uses_v3_encryption(c->version())) {
-    c->proxy_session->server_channel->crypt_in = make_shared<PSOV3Encryption>(cmd.server_key);
-    c->proxy_session->server_channel->crypt_out = make_shared<PSOV3Encryption>(cmd.client_key);
+    c->proxy_session->server_channel->crypt_in = std::make_shared<PSOV3Encryption>(cmd.server_key);
+    c->proxy_session->server_channel->crypt_out = std::make_shared<PSOV3Encryption>(cmd.client_key);
   } else {
-    c->proxy_session->server_channel->crypt_in = make_shared<PSOV2Encryption>(cmd.server_key);
-    c->proxy_session->server_channel->crypt_out = make_shared<PSOV2Encryption>(cmd.client_key);
+    c->proxy_session->server_channel->crypt_in = std::make_shared<PSOV2Encryption>(cmd.server_key);
+    c->proxy_session->server_channel->crypt_out = std::make_shared<PSOV2Encryption>(cmd.client_key);
   }
 
-  // Respond with an appropriate login command. We don't let the client do this
-  // because it believes it already did (when it was in an unlinked session, or
-  // in the patch server case, during the current session due to a hidden
+  // Respond with an appropriate login command. We don't let the client do this because it believes it already did
+  // (when it was in an unlinked session, or in the patch server case, during the current session due to a hidden
   // redirect).
   switch (c->version()) {
     case Version::PC_PATCH:
@@ -271,7 +262,7 @@ static asio::awaitable<HandlerResult> S_V123U_02_17(shared_ptr<Client> c, Channe
 
     case Version::DC_NTE:
       // TODO
-      throw runtime_error("DC NTE proxy is not implemented");
+      throw std::runtime_error("DC NTE proxy is not implemented");
 
     case Version::DC_11_2000:
     case Version::DC_V1:
@@ -308,7 +299,7 @@ static asio::awaitable<HandlerResult> S_V123U_02_17(shared_ptr<Client> c, Channe
         // For command 02, send the same as if we had received 9A from the server
         co_return co_await S_G_9A(c, msg);
       }
-      throw logic_error("GC init command not handled");
+      throw std::logic_error("GC init command not handled");
 
     case Version::XB_V3: {
       send_9E_XB_to_server(c);
@@ -316,13 +307,13 @@ static asio::awaitable<HandlerResult> S_V123U_02_17(shared_ptr<Client> c, Channe
     }
 
     case Version::BB_V4:
-      throw logic_error("v1/v2/v3 server init handler should not be called on BB");
+      throw std::logic_error("v1/v2/v3 server init handler should not be called on BB");
     default:
-      throw logic_error("invalid game version in server init handler");
+      throw std::logic_error("invalid game version in server init handler");
   }
 }
 
-static asio::awaitable<HandlerResult> S_U_04(shared_ptr<Client> c, Channel::Message&) {
+static asio::awaitable<HandlerResult> S_U_04(std::shared_ptr<Client> c, Channel::Message&) {
   C_Login_Patch_04 ret;
   ret.username.encode(c->username);
   ret.password.encode(c->password);
@@ -331,22 +322,19 @@ static asio::awaitable<HandlerResult> S_U_04(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_B_03(shared_ptr<Client> c, Channel::Message& msg) {
-  // Most servers don't include after_message or have a shorter after_message
-  // than newserv does, so don't require it
+static asio::awaitable<HandlerResult> S_B_03(std::shared_ptr<Client> c, Channel::Message& msg) {
+  // Most servers don't include after_message or have a shorter after_message than newserv does, so don't require it
   const auto& cmd = msg.check_size_t<S_ServerInitDefault_BB_03_9B>(0xFFFF);
 
-  // This isn't forwarded to the client, so only recreate the server's crypts.
-  // Use the same crypt type as the client... the server has the luxury of
-  // being able to try all the crypts it knows to detect what type the client
-  // uses, but the client can't do this since it sends the first encrypted
-  // data on the connection.
+  // This isn't forwarded to the client, so only recreate the server's crypts. Use the same crypt type as the client...
+  // the server has the luxury of being able to try all the crypts it knows to detect what type the client uses, but
+  // the client can't do this since it sends the first encrypted data on the connection.
   if (!c->bb_detector_crypt) {
-    throw logic_error("Client proxy session started with missing detector crypt");
+    throw std::logic_error("Client proxy session started with missing detector crypt");
   }
-  c->proxy_session->server_channel->crypt_in = make_shared<PSOBBMultiKeyImitatorEncryption>(
+  c->proxy_session->server_channel->crypt_in = std::make_shared<PSOBBMultiKeyImitatorEncryption>(
       c->bb_detector_crypt, cmd.server_key.data(), sizeof(cmd.server_key), false);
-  c->proxy_session->server_channel->crypt_out = make_shared<PSOBBMultiKeyImitatorEncryption>(
+  c->proxy_session->server_channel->crypt_out = std::make_shared<PSOBBMultiKeyImitatorEncryption>(
       c->bb_detector_crypt, cmd.client_key.data(), sizeof(cmd.client_key), false);
 
   C_LoginWithHardwareInfo_BB_93 resp;
@@ -370,7 +358,7 @@ static asio::awaitable<HandlerResult> S_B_03(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_B_E6(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_B_E6(std::shared_ptr<Client> c, Channel::Message& msg) {
   const auto& cmd = msg.check_size_t<S_ClientInit_BB_00E6>(0xFFFF);
   c->proxy_session->remote_guild_card_number = cmd.guild_card_number;
   c->bb_security_token = cmd.security_token;
@@ -386,7 +374,7 @@ static asio::awaitable<HandlerResult> S_B_E6(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_V123_04(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_V123_04(std::shared_ptr<Client> c, Channel::Message& msg) {
   // Suppress extremely short commands from the server instead of disconnecting
   if (msg.data.size() < offsetof(S_UpdateClientConfig_V3_04, client_config)) {
     le_uint64_t checksum = phosg::random_object<uint64_t>() & 0x0000FFFFFFFFFFFF;
@@ -394,44 +382,38 @@ static asio::awaitable<HandlerResult> S_V123_04(shared_ptr<Client> c, Channel::M
     co_return HandlerResult::SUPPRESS;
   }
 
-  // Some servers send a short 04 command if they don't use all of the 0x20
-  // bytes available. We should be prepared to handle that.
+  // Some servers send a short 04 command if they don't use all of the 0x20 bytes available. We should be prepared to
+  // handle that.
   auto& cmd = msg.check_size_t<S_UpdateClientConfig_V3_04>(
-      offsetof(S_UpdateClientConfig_V3_04, client_config),
-      sizeof(S_UpdateClientConfig_V3_04));
+      offsetof(S_UpdateClientConfig_V3_04, client_config), sizeof(S_UpdateClientConfig_V3_04));
 
-  // If this is a logged-in session, hide the guild card number assigned by the
-  // remote server so the client doesn't see it change. If this is a logged-out
-  // session, then the client never received a guild card number from newserv
+  // If this is a logged-in session, hide the guild card number assigned by the remote server so the client doesn't see
+  // it change. If this is a logged-out session, then the client never received a guild card number from newserv
   // anyway, so we can let the client see the number from the remote server.
   bool had_guild_card_number = (c->proxy_session->remote_guild_card_number >= 0);
   if (c->proxy_session->remote_guild_card_number != cmd.guild_card_number) {
     c->proxy_session->remote_guild_card_number = cmd.guild_card_number;
     c->log.info_f("Remote guild card number set to {}", c->proxy_session->remote_guild_card_number);
-    string message = std::format(
-        "The remote server\nhas assigned your\nGuild Card number:\n$C6{}",
-        c->proxy_session->remote_guild_card_number);
+    std::string message = std::format(
+        "The remote server\nhas assigned your\nGuild Card number:\n$C6{}", c->proxy_session->remote_guild_card_number);
     send_ship_info(c->channel, message);
   }
   if (c->login) {
     cmd.guild_card_number = c->login->account->account_id;
   }
 
-  // It seems the client ignores the length of the 04 command, and always copies
-  // 0x20 bytes to its config data. So if the server sends a short 04 command,
-  // part of the previous command ends up in the security data (usually part of
-  // the copyright string from the server init command). We simulate that here.
-  // If there was previously a guild card number, assume we got the lobby server
-  // init text instead of the port map init text.
+  // It seems the client ignores the length of the 04 command, and always copies 0x20 bytes to its config data. So if
+  // the server sends a short 04 command, part of the previous command ends up in the security data (usually part of
+  // the copyright string from the server init command), which we simulate here. If there was previously a guild card
+  // number, assume we got the lobby server init text instead of the port map init text.
   memcpy(c->proxy_session->remote_client_config_data.data(),
       had_guild_card_number ? "t Lobby Server. Copyright SEGA E" : "t Port Map. Copyright SEGA Enter", 0x20);
   memcpy(c->proxy_session->remote_client_config_data.data(), &cmd.client_config,
-      min<size_t>(msg.data.size() - offsetof(S_UpdateClientConfig_V3_04, client_config),
+      std::min<size_t>(msg.data.size() - offsetof(S_UpdateClientConfig_V3_04, client_config),
           c->proxy_session->remote_client_config_data.bytes()));
 
-  // If the guild card number was not set, pretend (to the server) that this is
-  // the first 04 command the client has received. The client responds with a 96
-  // (checksum) in that case.
+  // If the guild card number was not set, pretend (to the server) that this is the first 04 command the client has
+  // received. The client responds with a 96 (checksum) in that case.
   if (!had_guild_card_number) {
     le_uint64_t checksum = phosg::random_object<uint64_t>() & 0x0000FFFFFFFFFFFF;
     c->proxy_session->server_channel->send(0x96, 0x00, &checksum, sizeof(checksum));
@@ -440,7 +422,7 @@ static asio::awaitable<HandlerResult> S_V123_04(shared_ptr<Client> c, Channel::M
   co_return c->login ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_V123_06(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_V123_06(std::shared_ptr<Client> c, Channel::Message& msg) {
   bool modified = false;
   if (c->login && c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
     auto& cmd = msg.check_size_t<SC_TextHeader_01_06_11_B0_EE>(0xFFFF);
@@ -450,9 +432,8 @@ static asio::awaitable<HandlerResult> S_V123_06(shared_ptr<Client> c, Channel::M
     }
   }
 
-  // If the session is Ep3, and Unmask Whispers is on, and there's enough data,
-  // and the message has private_flags, and the private_flags say that you
-  // shouldn't see the message, then change the private_flags
+  // If the session is Ep3, and Unmask Whispers is on, and there's enough data, and the message has private_flags, and
+  // the private_flags say that you shouldn't see the message, then change the private_flags
   if (is_ep3(c->version()) &&
       c->check_flag(Client::Flag::PROXY_EP3_UNMASK_WHISPERS) &&
       (msg.data.size() >= 12) &&
@@ -466,7 +447,7 @@ static asio::awaitable<HandlerResult> S_V123_06(shared_ptr<Client> c, Channel::M
 }
 
 template <typename CmdT>
-static asio::awaitable<HandlerResult> S_41(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_41(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (c->login) {
     auto& cmd = msg.check_size_t<CmdT>();
     if ((cmd.searcher_guild_card_number == c->proxy_session->remote_guild_card_number) &&
@@ -497,12 +478,12 @@ static asio::awaitable<HandlerResult> S_41(shared_ptr<Client> c, Channel::Messag
   }
 }
 
-constexpr on_message_t S_DGX_41 = &S_41<S_GuildCardSearchResult_DC_V3_41>;
-constexpr on_message_t S_P_41 = &S_41<S_GuildCardSearchResult_PC_41>;
-constexpr on_message_t S_B_41 = &S_41<S_GuildCardSearchResult_BB_41>;
+constexpr MessageHandler S_DGX_41 = &S_41<S_GuildCardSearchResult_DC_V3_41>;
+constexpr MessageHandler S_P_41 = &S_41<S_GuildCardSearchResult_PC_41>;
+constexpr MessageHandler S_B_41 = &S_41<S_GuildCardSearchResult_BB_41>;
 
 template <typename CmdT>
-static asio::awaitable<HandlerResult> S_81(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_81(std::shared_ptr<Client> c, Channel::Message& msg) {
   bool modified = false;
   if (c->login && c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
     auto& cmd = msg.check_size_t<CmdT>();
@@ -518,13 +499,13 @@ static asio::awaitable<HandlerResult> S_81(shared_ptr<Client> c, Channel::Messag
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-constexpr on_message_t S_DGX_81 = &S_81<SC_SimpleMail_DC_V3_81>;
-constexpr on_message_t S_P_81 = &S_81<SC_SimpleMail_PC_81>;
-constexpr on_message_t S_B_81 = &S_81<SC_SimpleMail_BB_81>;
+constexpr MessageHandler S_DGX_81 = &S_81<SC_SimpleMail_DC_V3_81>;
+constexpr MessageHandler S_P_81 = &S_81<SC_SimpleMail_PC_81>;
+constexpr MessageHandler S_B_81 = &S_81<SC_SimpleMail_BB_81>;
 
-static asio::awaitable<HandlerResult> S_88(shared_ptr<Client> c, Channel::Message& msg) {
-  // If the client isn't in the lobby, suppress the command (Ep3 can crash if
-  // it receives this while loading; other versions probably also will crash)
+static asio::awaitable<HandlerResult> S_88(std::shared_ptr<Client> c, Channel::Message& msg) {
+  // If the client isn't in the lobby, suppress the command (Ep3 can crash if it receives this while loading; other
+  // versions probably also will crash)
   if (!c->proxy_session->is_in_lobby) {
     co_return HandlerResult::SUPPRESS;
   }
@@ -543,20 +524,19 @@ static asio::awaitable<HandlerResult> S_88(shared_ptr<Client> c, Channel::Messag
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_B1(shared_ptr<Client> c, Channel::Message&) {
-  // Block all time updates from the remote server, so client's time remains
-  // consistent
+static asio::awaitable<HandlerResult> S_B1(std::shared_ptr<Client> c, Channel::Message&) {
+  // Block all time updates from the remote server, so client's time remains consistent
   c->proxy_session->server_channel->send(0x99, 0x00);
   co_return HandlerResult::SUPPRESS;
 }
 
 template <bool BE>
-static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_B2(std::shared_ptr<Client> c, Channel::Message& msg) {
   const auto& cmd = msg.check_size_t<S_ExecuteCode_B2>(0xFFFF);
 
   if (cmd.code_size && c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
     uint64_t filename_timestamp = phosg::now();
-    string code = msg.data.substr(sizeof(S_ExecuteCode_B2));
+    std::string code = msg.data.substr(sizeof(S_ExecuteCode_B2));
 
     if (c->check_flag(Client::Flag::ENCRYPTED_SEND_FUNCTION_CALL)) {
       phosg::StringReader r(code);
@@ -565,7 +545,7 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
       uint32_t key = is_big_endian ? r.get_u32b() : r.get_u32l();
 
       PSOV2Encryption crypt(key);
-      string decrypted_data;
+      std::string decrypted_data;
       if (is_big_endian) {
         phosg::StringWriter w;
         while (!r.eof()) {
@@ -581,7 +561,7 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
       if (decompressed_size < code.size()) {
         code.resize(decompressed_size);
       } else if (decompressed_size > code.size()) {
-        throw runtime_error("decompressed code smaller than expected");
+        throw std::runtime_error("decompressed code smaller than expected");
       }
 
     } else {
@@ -591,20 +571,19 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
       }
     }
 
-    string output_filename = std::format("code.{}.bin", filename_timestamp);
+    std::string output_filename = std::format("code.{}.bin", filename_timestamp);
     phosg::save_file(output_filename, msg.data);
     c->log.info_f("Wrote code from server to file {}", output_filename);
 
     using FooterT = RELFileFooterT<BE>;
 
-    // TODO: Support SH-4 disassembly too
     bool is_ppc = ::is_ppc(c->version());
     bool is_x86 = ::is_x86(c->version());
     bool is_sh4 = ::is_sh4(c->version());
     if (is_ppc || is_x86 || is_sh4) {
       try {
         if (code.size() < sizeof(FooterT)) {
-          throw runtime_error("code section is too small");
+          throw std::runtime_error("code section is too small");
         }
 
         size_t footer_offset = code.size() - sizeof(FooterT);
@@ -612,7 +591,7 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
         phosg::StringReader r(code.data(), code.size());
         const auto& footer = r.pget<FooterT>(footer_offset);
 
-        multimap<uint32_t, string> labels;
+        std::multimap<uint32_t, std::string> labels;
         r.go(footer.relocations_offset);
         uint32_t reloc_offset = 0;
         for (size_t x = 0; x < footer.num_relocations; x++) {
@@ -623,7 +602,7 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
         labels.emplace(footer_offset, "footer");
         labels.emplace(r.pget<U32T<BE>>(footer.root_offset), "start");
 
-        string disassembly;
+        std::string disassembly;
         if (is_ppc) {
           disassembly = ResourceDASM::PPC32Emulator::disassemble(&r.pget<uint8_t>(0, code.size()), code.size(), 0, &labels);
         } else if (is_x86) {
@@ -632,7 +611,7 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
           disassembly = ResourceDASM::SH4Emulator::disassemble(&r.pget<uint8_t>(0, code.size()), code.size(), 0, &labels);
         } else {
           // We shouldn't have entered the outer if statement if this happens
-          throw logic_error("unsupported architecture");
+          throw std::logic_error("unsupported architecture");
         }
 
         output_filename = std::format("code.{}.txt", filename_timestamp);
@@ -645,7 +624,7 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
         }
         c->log.info_f("Wrote disassembly to file {}", output_filename);
 
-      } catch (const exception& e) {
+      } catch (const std::exception& e) {
         c->log.info_f("Failed to disassemble code from server: {}", e.what());
       }
     }
@@ -664,10 +643,10 @@ static asio::awaitable<HandlerResult> S_B2(shared_ptr<Client> c, Channel::Messag
   }
 }
 
-static asio::awaitable<HandlerResult> C_B3(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_B3(std::shared_ptr<Client> c, Channel::Message& msg) {
   auto cmd = msg.check_size_t<C_ExecuteCodeResult_B3>();
 
-  shared_ptr<AsyncPromise<C_ExecuteCodeResult_B3>> promise;
+  std::shared_ptr<AsyncPromise<C_ExecuteCodeResult_B3>> promise;
   if (!c->function_call_response_queue.empty()) {
     promise = std::move(c->function_call_response_queue.front());
     c->function_call_response_queue.pop_front();
@@ -681,24 +660,29 @@ static asio::awaitable<HandlerResult> C_B3(shared_ptr<Client> c, Channel::Messag
   }
 }
 
-static asio::awaitable<HandlerResult> C_B_E0(shared_ptr<Client> c, Channel::Message&) {
+static asio::awaitable<HandlerResult> C_B_E0(std::shared_ptr<Client> c, Channel::Message&) {
   auto ret = c->proxy_session->bb_client_sent_E0 ? HandlerResult::FORWARD : HandlerResult::SUPPRESS;
   c->proxy_session->bb_client_sent_E0 = true;
   co_return ret;
 }
 
-static asio::awaitable<HandlerResult> S_B_E2(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_B_E2(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
-    string output_filename = std::format("system.{}.psosys", phosg::now());
-    phosg::save_object_file<PSOBBBaseSystemFile>(output_filename, msg.check_size_t<PSOBBBaseSystemFile>());
-    c->log.info_f("Wrote system file to {}", output_filename);
+    const auto& cmd = msg.check_size_t<S_SyncSystemFile_BB_E2>();
+    uint64_t ts = phosg::now();
+    std::string system_filename = std::format("system.{}.psosys", ts);
+    std::string team_membership_filename = std::format("system.{}.psosysteam", ts);
+    phosg::save_object_file(system_filename, cmd.system_file);
+    phosg::save_object_file(team_membership_filename, cmd.team_membership);
+    c->log.info_f("Wrote system file to {}", system_filename);
+    c->log.info_f("Wrote team membership to {}", team_membership_filename);
   }
   co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_B_E7(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_B_E7(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
-    string output_filename = std::format("player.{}.psochar", phosg::now());
+    std::string output_filename = std::format("player.{}.psochar", phosg::now());
     auto f = phosg::fopen_unique(output_filename, "wb");
     PSOCommandHeaderBB header = {msg.data.size() + sizeof(PSOCommandHeaderBB), msg.command, msg.flag};
     phosg::fwritex(f.get(), &header, sizeof(header));
@@ -708,13 +692,102 @@ static asio::awaitable<HandlerResult> S_B_E7(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::FORWARD;
 }
 
+static asio::awaitable<HandlerResult> S_B_DC(std::shared_ptr<Client> c, Channel::Message& msg) {
+  if (c->check_flag(Client::Flag::PROXY_SAVE_FILES) && (msg.command == 0x02DC)) {
+    const auto& cmd = msg.check_size_t<S_GuildCardFileChunk_02DC>(8, sizeof(S_GuildCardFileChunk_02DC));
+    size_t chunk_size = msg.data.size() - 8;
+    size_t chunk_offset = cmd.chunk_index * 0x6800;
+    if (chunk_offset >= sizeof(PSOBBGuildCardFile)) {
+      throw std::runtime_error("Guild Card file chunk offset out of range");
+    }
+    if (chunk_offset + chunk_size > sizeof(PSOBBGuildCardFile)) {
+      throw std::runtime_error("Guild Card file chunk extends beyond end of file");
+    }
+
+    if (!c->proxy_session->bb_guild_card_data) {
+      c->proxy_session->bb_guild_card_data = std::make_shared<PSOBBGuildCardFile>();
+    }
+    memcpy(
+        reinterpret_cast<uint8_t*>(c->proxy_session->bb_guild_card_data.get()) + chunk_offset,
+        cmd.data.data(), chunk_size);
+  }
+  co_return HandlerResult::FORWARD;
+}
+
+static asio::awaitable<HandlerResult> C_B_DC(std::shared_ptr<Client> c, Channel::Message& msg) {
+  if (c->check_flag(Client::Flag::PROXY_SAVE_FILES) && (msg.command == 0x03DC)) {
+    const auto& cmd = msg.check_size_t<C_GuildCardDataRequest_BB_03DC>();
+    if ((cmd.cont == 0) && c->proxy_session->bb_guild_card_data) {
+      std::string output_filename = std::format("guildcard.{}.psocard", phosg::now());
+      phosg::save_object_file(output_filename, *c->proxy_session->bb_guild_card_data);
+      c->log.info_f("Wrote Guild Card data to {}", output_filename);
+    }
+  }
+  co_return HandlerResult::FORWARD;
+}
+
+static asio::awaitable<HandlerResult> S_B_EB(std::shared_ptr<Client> c, Channel::Message& msg) {
+  if (c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
+    if (msg.command == 0x01EB) {
+      const auto* entries = &msg.check_size_t<S_StreamFileIndexEntry_BB_01EB>(
+          sizeof(S_StreamFileIndexEntry_BB_01EB) * msg.flag);
+      c->proxy_session->bb_stream_file_entries.clear();
+      size_t total_size = 0;
+      for (size_t z = 0; z < msg.flag; z++) {
+        c->proxy_session->bb_stream_file_entries.emplace_back(entries[z]);
+        total_size += entries[z].size;
+      }
+      c->proxy_session->bb_stream_file_data.clear();
+      c->proxy_session->bb_stream_file_data.resize(total_size, '\xFF');
+      c->proxy_session->bb_stream_file_data_received = 0;
+
+    } else if (msg.command == 0x02EB) {
+      const auto& cmd = msg.check_size_t<S_StreamFileChunk_BB_02EB>(4, sizeof(S_StreamFileChunk_BB_02EB));
+      size_t chunk_offset = cmd.chunk_index * 0x6800;
+      size_t chunk_size = msg.data.size() - 4;
+      if (chunk_offset >= c->proxy_session->bb_stream_file_data.size()) {
+        throw std::runtime_error("Stream file chunk offset out of range");
+      }
+      if (chunk_offset + chunk_size > c->proxy_session->bb_stream_file_data.size()) {
+        throw std::runtime_error(std::format(
+            "Stream file chunk extends beyond end of file (received 0x{:X} bytes at offset 0x{:X}; limit is 0x{:X})",
+            chunk_size, chunk_offset, c->proxy_session->bb_stream_file_data.size()));
+      }
+      memcpy(c->proxy_session->bb_stream_file_data.data() + chunk_offset, cmd.data.data(), chunk_size);
+      c->proxy_session->bb_stream_file_data_received += chunk_size;
+      if (c->proxy_session->bb_stream_file_data_received == c->proxy_session->bb_stream_file_data.size()) {
+        std::string output_prefix = std::format("streamfile.{}.", phosg::now());
+        for (const auto& entry : c->proxy_session->bb_stream_file_entries) {
+          std::string filename = entry.filename.decode();
+          std::string sanitized_filename = filename;
+          for (char& ch : sanitized_filename) {
+            if (((ch < '0') || (ch > '9')) && ((ch < 'A') || (ch > 'Z')) && ((ch < 'a') || (ch > 'z')) && (ch != '.')) {
+              ch = '_';
+            }
+          }
+          if (entry.offset >= c->proxy_session->bb_stream_file_data.size()) {
+            c->log.warning_f("BB stream file entry {} begins beyond end of data", filename);
+          } else if (entry.offset + entry.size > c->proxy_session->bb_stream_file_data.size()) {
+            c->log.warning_f("BB stream file entry {} ends beyond end of data", filename);
+          } else {
+            std::string output_filename = output_prefix + sanitized_filename;
+            auto f = phosg::fopen_unique(output_filename, "wb");
+            phosg::fwritex(f.get(), c->proxy_session->bb_stream_file_data.data() + entry.offset, entry.size);
+            c->log.info_f("Wrote stream file entry {}", output_filename);
+          }
+        }
+      }
+    }
+  }
+  co_return HandlerResult::FORWARD;
+}
+
 template <typename CmdT>
-static asio::awaitable<HandlerResult> S_C4(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_C4(std::shared_ptr<Client> c, Channel::Message& msg) {
   bool modified = false;
   if (c->login && c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
     size_t expected_size = sizeof(CmdT) * msg.flag;
-    // Some servers (e.g. Schtserv) send extra data on the end of this command;
-    // the client ignores it so we can ignore it too
+    // Schtserv sends extra data on the end of this command; the client ignores it so we can ignore it too
     auto* entries = &msg.check_size_t<CmdT>(expected_size, 0xFFFF);
     for (size_t x = 0; x < msg.flag; x++) {
       if (entries[x].guild_card_number == c->proxy_session->remote_guild_card_number) {
@@ -726,11 +799,11 @@ static asio::awaitable<HandlerResult> S_C4(shared_ptr<Client> c, Channel::Messag
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-constexpr on_message_t S_DGX_C4 = &S_C4<S_ChoiceSearchResultEntry_DC_V3_C4>;
-constexpr on_message_t S_P_C4 = &S_C4<S_ChoiceSearchResultEntry_PC_C4>;
-constexpr on_message_t S_B_C4 = &S_C4<S_ChoiceSearchResultEntry_BB_C4>;
+constexpr MessageHandler S_DGX_C4 = &S_C4<S_ChoiceSearchResultEntry_DC_V3_C4>;
+constexpr MessageHandler S_P_C4 = &S_C4<S_ChoiceSearchResultEntry_PC_C4>;
+constexpr MessageHandler S_B_C4 = &S_C4<S_ChoiceSearchResultEntry_BB_C4>;
 
-static asio::awaitable<HandlerResult> S_G_E4(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_G_E4(std::shared_ptr<Client> c, Channel::Message& msg) {
   auto& cmd = msg.check_size_t<S_CardBattleTableState_Ep3_E4>();
   bool modified = false;
   if (c->login && c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
@@ -744,16 +817,13 @@ static asio::awaitable<HandlerResult> S_G_E4(shared_ptr<Client> c, Channel::Mess
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_B_22(shared_ptr<Client> c, Channel::Message& msg) {
-  // We use this command (which is sent before the init encryption command) to
-  // detect a particular server behavior that we'll have to work around later.
-  // It looks like this command's existence is an anti-proxy measure, since
-  // this command is 0x34 bytes in total, and the logic that adds padding bytes
-  // when the command size isn't a multiple of 8 is only active when encryption
-  // is enabled. Presumably some simpler proxies would get this wrong.
-  // Editor's note: There's an unsavory message in this command's data field,
-  // hence the hash here instead of a direct string comparison. I'd love to
-  // hear the story behind why they put that string there.
+static asio::awaitable<HandlerResult> S_B_22(std::shared_ptr<Client> c, Channel::Message& msg) {
+  // We use this command (which is sent before the init encryption command) to detect a particular server behavior that
+  // we'll have to work around later. It looks like this command's existence is an anti-proxy measure, since this
+  // command is 0x34 bytes in total, and the logic that adds padding bytes when the command size isn't a multiple of 8
+  // is only active when encryption is enabled. Presumably some simpler proxies would get this wrong.
+  // Editor's note: There's an unsavory message in this command's data field, hence the hash here instead of a direct
+  // string comparison. I'd love to hear the story behind why they put that string there.
   if ((msg.data.size() == 0x2C) && (phosg::fnv1a64(msg.data.data(), msg.data.size()) == 0x8AF8314316A27994)) {
     c->log.info_f("Enabling remote IP CRC patch");
     c->proxy_session->enable_remote_ip_crc_patch = true;
@@ -761,13 +831,11 @@ static asio::awaitable<HandlerResult> S_B_22(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_19_U_14(shared_ptr<Client> c, Channel::Message& msg) {
-  // If the command is shorter than 6 bytes, use the previous server command to
-  // fill it in. This simulates a behavior used by some private servers where a
-  // longer previous command is used to fill part of the client's receive buffer
-  // with meaningful data, then an intentionally undersize 19 command is sent
-  // which results in the client using the previous command's data as part of
-  // the 19 command's contents. They presumably do this in an attempt to prevent
+static asio::awaitable<HandlerResult> S_19_U_14(std::shared_ptr<Client> c, Channel::Message& msg) {
+  // If the command is shorter than 6 bytes, use the previous server command to fill it in. This simulates a behavior
+  // used by some private servers where a longer previous command is used to fill part of the client's receive buffer
+  // with meaningful data, then an intentionally undersize 19 command is sent which results in the client using the
+  // previous command's data as part of the 19 command's contents. They presumably do this in an attempt to prevent
   // people from using proxies.
   if (msg.data.size() < sizeof(c->proxy_session->prev_server_command_bytes)) {
     msg.data.append(
@@ -792,16 +860,16 @@ static asio::awaitable<HandlerResult> S_19_U_14(shared_ptr<Client> c, Channel::M
     auto& cmd = msg.check_size_t<S_ReconnectIPv6_Extension_19>(0xFFFF);
     new_ep = make_endpoint_ipv6(cmd.address.data(), cmd.port);
   } else {
-    // This weird maximum size is here to properly handle the version-split
-    // command that some servers (including newserv) use on port 9100
+    // This weird maximum size is here to properly handle the version-split command that some servers (including
+    // newserv) use on port 9100
     auto& cmd = msg.check_size_t<S_Reconnect_19>(0xFFFF);
     new_ep = make_endpoint_ipv4(cmd.address, cmd.port);
   }
 
   // Replace the server channel with a new channel to the new endpoint
-  string netloc_str = str_for_endpoint(new_ep);
+  std::string netloc_str = str_for_endpoint(new_ep);
   c->log.info_f("Connecting to {}", netloc_str);
-  auto sock = make_unique<asio::ip::tcp::socket>(co_await async_connect_tcp(new_ep));
+  auto sock = std::make_unique<asio::ip::tcp::socket>(co_await async_connect_tcp(new_ep));
 
   // Close the old channel only after replacing it with the new one
   auto s = c->require_server_state();
@@ -813,7 +881,9 @@ static asio::awaitable<HandlerResult> S_19_U_14(shared_ptr<Client> c, Channel::M
       old_channel->language,
       std::format("C-{} proxy remote server at {}", c->id, netloc_str),
       old_channel->terminal_send_color,
-      old_channel->terminal_recv_color);
+      old_channel->terminal_recv_color,
+      old_channel->censor_received_credentials,
+      old_channel->censor_sent_credentials);
   c->proxy_session->server_channel = new_channel;
   asio::co_spawn(*s->io_context, handle_proxy_server_commands(c, c->proxy_session, new_channel), asio::detached);
   c->log.info_f("Server channel connected");
@@ -823,17 +893,16 @@ static asio::awaitable<HandlerResult> S_19_U_14(shared_ptr<Client> c, Channel::M
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_V3_1A_D5(shared_ptr<Client> c, Channel::Message&) {
-  // If the client is a version that sends close confirmations and the client
-  // has the no-close-confirmation flag set in its newserv client config, send a
-  // fake confirmation to the remote server immediately.
+static asio::awaitable<HandlerResult> S_V3_1A_D5(std::shared_ptr<Client> c, Channel::Message&) {
+  // If the client is a version that sends close confirmations and the client has the no-close-confirmation flag set in
+  // its newserv client config, send a fake confirmation to the remote server immediately.
   if (is_v3(c->version()) && c->check_flag(Client::Flag::NO_D6)) {
     c->proxy_session->server_channel->send(0xD6);
   }
   co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_V3_BB_DA(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_V3_BB_DA(std::shared_ptr<Client> c, Channel::Message& msg) {
   // This command is supported on all V3 and V4 versions except Ep1&2 Trial
   if (c->version() == Version::GC_NTE) {
     co_return HandlerResult::SUPPRESS;
@@ -845,9 +914,24 @@ static asio::awaitable<HandlerResult> S_V3_BB_DA(shared_ptr<Client> c, Channel::
   }
 }
 
-static asio::awaitable<HandlerResult> SC_6x60_6xA2(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> SC_6x60_6xA2(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (!c->proxy_session->is_in_game) {
     co_return HandlerResult::FORWARD;
+  }
+
+  G_SpecializableItemDropRequest_6xA2 cmd = normalize_drop_request(msg.data.data(), msg.data.size());
+
+  if (!c->proxy_session->next_drop_item.empty()) {
+    c->log.info_f("An override item is waiting; creating it");
+    auto s = c->require_server_state();
+    bool is_obj = (cmd.rt_index == 0x30);
+    c->proxy_session->next_drop_item.id = 0x06010000 | cmd.entity_index | (is_obj ? 0x4000 : 0x1000);
+    send_drop_item_to_channel(
+        s, c->channel, c->proxy_session->next_drop_item, is_obj ? 2 : 1, cmd.floor, cmd.pos, cmd.entity_index);
+    send_drop_item_to_channel(
+        s, c->proxy_session->server_channel, c->proxy_session->next_drop_item, is_obj ? 2 : 1, cmd.floor, cmd.pos, cmd.entity_index);
+    c->proxy_session->next_drop_item.clear();
+    co_return HandlerResult::SUPPRESS;
   }
 
   switch (c->proxy_session->drop_mode) {
@@ -858,7 +942,7 @@ static asio::awaitable<HandlerResult> SC_6x60_6xA2(shared_ptr<Client> c, Channel
     case ProxyDropMode::INTERCEPT:
       break;
     default:
-      throw logic_error("invalid drop mode");
+      throw std::logic_error("invalid drop mode");
   }
 
   if (!c->proxy_session->item_creator) {
@@ -870,7 +954,6 @@ static asio::awaitable<HandlerResult> SC_6x60_6xA2(shared_ptr<Client> c, Channel
     co_return HandlerResult::FORWARD;
   }
 
-  G_SpecializableItemDropRequest_6xA2 cmd = normalize_drop_request(msg.data.data(), msg.data.size());
   auto rec = reconcile_drop_request_with_map(
       c, cmd, c->proxy_session->lobby_difficulty, c->proxy_session->lobby_event, c->proxy_session->map_state, false);
 
@@ -878,7 +961,8 @@ static asio::awaitable<HandlerResult> SC_6x60_6xA2(shared_ptr<Client> c, Channel
   if (rec.obj_st) {
     if (rec.ignore_def) {
       c->log.info_f("Creating item from box {:04X} (area {:02X})", cmd.entity_index, cmd.effective_area);
-      res = c->proxy_session->item_creator->on_box_item_drop(cmd.effective_area);
+      res = c->proxy_session->item_creator->on_box_item_drop(
+          cmd.effective_area, c->check_flag(Client::Flag::ALL_RARES_ENABLED));
     } else {
       c->log.info_f("Creating item from box {:04X} (area {:02X}; specialized with {:g} {:08X} {:08X} {:08X})",
           cmd.entity_index, cmd.effective_area,
@@ -888,14 +972,15 @@ static asio::awaitable<HandlerResult> SC_6x60_6xA2(shared_ptr<Client> c, Channel
     }
   } else {
     c->log.info_f("Creating item from enemy {:04X} (area {:02X})", cmd.entity_index, cmd.effective_area);
-    res = c->proxy_session->item_creator->on_monster_item_drop(rec.effective_rt_index, cmd.effective_area);
+    res = c->proxy_session->item_creator->on_monster_item_drop(
+        rec.effective_enemy_type, cmd.effective_area, c->check_flag(Client::Flag::ALL_RARES_ENABLED));
   }
 
   if (res.item.empty()) {
     c->log.info_f("No item was created");
   } else {
     auto s = c->require_server_state();
-    string name = s->describe_item(c->version(), res.item);
+    std::string name = s->data->describe_item(c->version(), res.item);
     c->log.info_f("Entity {:04X} (area {:02X}) created item {}", cmd.entity_index, cmd.effective_area, name);
     res.item.id = c->proxy_session->next_item_id++;
     c->log.info_f("Creating item {:08X} at {:02X}:{:g},{:g} for all clients",
@@ -907,7 +992,7 @@ static asio::awaitable<HandlerResult> SC_6x60_6xA2(shared_ptr<Client> c, Channel
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_6x(std::shared_ptr<Client> c, Channel::Message& msg) {
   auto s = c->require_server_state();
 
   if (msg.data.size() < 4) {
@@ -939,8 +1024,8 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
 
     case 0x17: {
       const auto& cmd = msg.check_size_t<G_SetEntityPositionAndAngle_6x17>();
-      if (cmd.header.entity_id == c->lobby_client_id) {
-        c->log.warning_f("Blocking subcommand 6x17 targeting local client");
+      if ((cmd.header.entity_id == c->lobby_client_id) && (c->floor != 0x0D)) {
+        c->log.warning_f("Blocking subcommand 6x17 targeting local client on incorrect floor");
         co_return HandlerResult::SUPPRESS;
       }
       break;
@@ -957,7 +1042,7 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
 
     case 0x46: {
       const auto& header = msg.check_size_t<G_AttackFinished_Header_6x46>(0xFFFF);
-      if (header.target_count > min<size_t>(header.header.size - sizeof(G_AttackFinished_Header_6x46) / 4, 10)) {
+      if (header.target_count > std::min<size_t>(header.header.size - sizeof(G_AttackFinished_Header_6x46) / 4, 10)) {
         c->log.warning_f("Blocking subcommand 6x46 with invalid count");
         co_return HandlerResult::SUPPRESS;
       }
@@ -966,7 +1051,7 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
 
     case 0x47: {
       const auto& header = msg.check_size_t<G_CastTechnique_Header_6x47>(0xFFFF);
-      if (header.target_count > min<size_t>(header.header.size - sizeof(G_CastTechnique_Header_6x47) / 4, 10)) {
+      if (header.target_count > std::min<size_t>(header.header.size - sizeof(G_CastTechnique_Header_6x47) / 4, 10)) {
         c->log.warning_f("Blocking subcommand 6x47 with invalid count");
         co_return HandlerResult::SUPPRESS;
       }
@@ -975,7 +1060,7 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
 
     case 0x49: {
       const auto& header = msg.check_size_t<G_ExecutePhotonBlast_Header_6x49>(0xFFFF);
-      if (header.target_count > min<size_t>(header.header.size - sizeof(G_ExecutePhotonBlast_Header_6x49) / 4, 10)) {
+      if (header.target_count > std::min<size_t>(header.header.size - sizeof(G_ExecutePhotonBlast_Header_6x49) / 4, 10)) {
         c->log.warning_f("Blocking subcommand 6x49 with invalid count");
         co_return HandlerResult::SUPPRESS;
       }
@@ -997,10 +1082,10 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
     case 0x6A: {
       auto& cmd = msg.check_size_t<G_SetBossWarpFlags_6x6A>();
       if (c->proxy_session->map_state) {
-        shared_ptr<MapState::ObjectState> obj_st;
+        std::shared_ptr<MapState::ObjectState> obj_st;
         try {
           obj_st = c->proxy_session->map_state->object_state_for_index(c->version(), cmd.header.entity_id - 0x4000);
-        } catch (const exception& e) {
+        } catch (const std::exception& e) {
           c->log.warning_f("Invalid object reference ({})", e.what());
         }
 
@@ -1116,8 +1201,8 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
         const auto& header = msg.check_size_t<G_MapSubsubcommand_Ep3_6xB6>(0xFFFF);
         if (header.subsubcommand == 0x00000041) {
           const auto& cmd = msg.check_size_t<G_MapData_Ep3_6xB6x41>(0xFFFF);
-          string filename = std::format("map{:08X}.{}.mnmd", cmd.map_number, phosg::now());
-          string map_data = prs_decompress(msg.data.data() + sizeof(cmd), msg.data.size() - sizeof(cmd));
+          std::string filename = std::format("map{:08X}.{}.mnmd", cmd.map_number, phosg::now());
+          std::string map_data = prs_decompress(msg.data.data() + sizeof(cmd), msg.data.size() - sizeof(cmd));
           phosg::save_file(filename, map_data);
           if ((map_data.size() != sizeof(Episode3::MapDefinition)) &&
               (map_data.size() != sizeof(Episode3::MapDefinitionTrial))) {
@@ -1158,10 +1243,9 @@ static asio::awaitable<HandlerResult> S_6x(shared_ptr<Client> c, Channel::Messag
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> C_GXB_61(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_GXB_61(std::shared_ptr<Client> c, Channel::Message& msg) {
   bool modified = false;
-  // TODO: We should check if the info board text was actually modified and
-  // return MODIFIED if so.
+  // TODO: We should check if the info board text was actually modified and return MODIFIED if so.
 
   if (is_v4(c->version())) {
     auto& pd = msg.check_size_t<C_CharacterData_BB_61_98>(0xFFFF);
@@ -1171,9 +1255,8 @@ static asio::awaitable<HandlerResult> C_GXB_61(shared_ptr<Client> c, Channel::Me
     C_CharacterData_V3_61_98* pd;
     if (msg.flag == 4) { // Episode 3
       auto& ep3_pd = msg.check_size_t<C_CharacterData_Ep3_61_98>();
-      // Technically we could decrypt the Ep3 config struct within the player
-      // data, but this may confuse some non-newserv upstream servers if they
-      // implement this structure incorrectly. The decryption would go like:
+      // Technically we could decrypt the Ep3 config struct within the player data, but this may confuse the upstream
+      // server if it implements this structure incorrectly. The decryption would go like:
       // if (ep3_pd.ep3_config.is_encrypted) {
       //   decrypt_trivial_gci_data(
       //       &ep3_pd.ep3_config.card_counts,
@@ -1199,49 +1282,47 @@ static asio::awaitable<HandlerResult> C_GXB_61(shared_ptr<Client> c, Channel::Me
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> C_GX_D9(shared_ptr<Client>, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_GX_D9(std::shared_ptr<Client>, Channel::Message& msg) {
   phosg::strip_trailing_zeroes(msg.data);
   msg.data = add_color(msg.data);
   msg.data.push_back(0);
   while (msg.data.size() & 3) {
     msg.data.push_back(0);
   }
-  // TODO: We should check if the info board text was actually modified and
-  // return FORWARD if not.
+  // TODO: We should check if the info board text was actually modified and return FORWARD if not.
   co_return HandlerResult::MODIFIED;
 }
 
-static asio::awaitable<HandlerResult> C_B_D9(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_B_D9(std::shared_ptr<Client> c, Channel::Message& msg) {
   try {
     phosg::strip_trailing_zeroes(msg.data);
     if (msg.data.size() & 1) {
       msg.data.push_back(0);
     }
-    string decoded = tt_utf16_to_utf8(msg.data.data(), msg.data.size());
+    std::string decoded = tt_utf16_to_utf8(msg.data.data(), msg.data.size());
     add_color_inplace(decoded);
     msg.data = tt_utf8_to_utf16(decoded.data(), decoded.size());
     while (msg.data.size() & 3) {
       msg.data.push_back(0);
     }
-  } catch (const runtime_error& e) {
+  } catch (const std::runtime_error& e) {
     c->log.warning_f("Failed to decode and unescape D9 command: {}", e.what());
   }
-  // TODO: We should check if the info board text was actually modified and
-  // return HandlerResult::FORWARD if not.
+  // TODO: We should check if the info board text was actually modified and return HandlerResult::FORWARD if not.
   co_return HandlerResult::MODIFIED;
 }
 
 template <typename T>
-static asio::awaitable<HandlerResult> S_44_A6(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_44_A6(std::shared_ptr<Client> c, Channel::Message& msg) {
   const auto& cmd = msg.check_size_t<T>();
 
-  string filename = cmd.filename.decode();
-  string output_filename;
+  std::string filename = cmd.filename.decode();
+  std::string output_filename;
   bool is_download = (msg.command == 0xA6);
   if (c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
     size_t extension_offset = filename.rfind('.');
-    string basename, extension;
-    if (extension_offset != string::npos) {
+    std::string basename, extension;
+    if (extension_offset != std::string::npos) {
       basename = filename.substr(0, extension_offset);
       extension = filename.substr(extension_offset);
       if (extension == ".bin" && is_ep3(c->version())) {
@@ -1250,8 +1331,8 @@ static asio::awaitable<HandlerResult> S_44_A6(shared_ptr<Client> c, Channel::Mes
     } else {
       basename = filename;
     }
-    output_filename = std::format("{}.{}.{}{}",
-        basename, is_download ? "download" : "online", phosg::now(), extension);
+    output_filename = std::format(
+        "{}.{}.{}{}", basename, is_download ? "download" : "online", phosg::now(), extension);
 
     for (size_t x = 0; x < output_filename.size(); x++) {
       if (output_filename[x] < 0x20 || output_filename[x] > 0x7E || output_filename[x] == '/') {
@@ -1280,20 +1361,20 @@ static asio::awaitable<HandlerResult> S_44_A6(shared_ptr<Client> c, Channel::Mes
   co_return HandlerResult::FORWARD;
 }
 
-constexpr on_message_t S_D_44_A6 = &S_44_A6<S_OpenFile_DC_44_A6>;
-constexpr on_message_t S_PG_44_A6 = &S_44_A6<S_OpenFile_PC_GC_44_A6>;
-constexpr on_message_t S_X_44_A6 = &S_44_A6<S_OpenFile_XB_44_A6>;
-constexpr on_message_t S_B_44_A6 = &S_44_A6<S_OpenFile_BB_44_A6>;
+constexpr MessageHandler S_D_44_A6 = &S_44_A6<S_OpenFile_DC_44_A6>;
+constexpr MessageHandler S_PG_44_A6 = &S_44_A6<S_OpenFile_PC_GC_44_A6>;
+constexpr MessageHandler S_X_44_A6 = &S_44_A6<S_OpenFile_XB_44_A6>;
+constexpr MessageHandler S_B_44_A6 = &S_44_A6<S_OpenFile_BB_44_A6>;
 
-static asio::awaitable<HandlerResult> S_13_A7(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_13_A7(std::shared_ptr<Client> c, Channel::Message& msg) {
   auto& cmd = msg.check_size_t<S_WriteFile_13_A7>();
   bool modified = false;
 
   ProxySession::SavingFile* sf = nullptr;
   try {
     sf = &c->proxy_session->saving_files.at(cmd.filename.decode());
-  } catch (const out_of_range&) {
-    string filename = cmd.filename.decode();
+  } catch (const std::out_of_range&) {
+    std::string filename = cmd.filename.decode();
     c->log.warning_f("Received data for non-open file {}", filename);
   }
   if (!sf) {
@@ -1303,7 +1384,7 @@ static asio::awaitable<HandlerResult> S_13_A7(shared_ptr<Client> c, Channel::Mes
   bool is_last_block = (cmd.data_size != 0x400);
   size_t block_offset = msg.flag * 0x400;
   size_t allowed_block_size = (block_offset < sf->total_size)
-      ? min<size_t>(sf->total_size - block_offset, 0x400)
+      ? std::min<size_t>(sf->total_size - block_offset, 0x400)
       : 0;
 
   if (cmd.data_size > allowed_block_size) {
@@ -1338,9 +1419,9 @@ static asio::awaitable<HandlerResult> S_13_A7(shared_ptr<Client> c, Channel::Mes
 
     if (!sf->is_download) {
       if (sf->basename.ends_with(".bin")) {
-        c->proxy_session->last_bin_contents = make_shared<std::string>(prs_decompress(sf->data));
+        c->proxy_session->last_bin_contents = std::make_shared<std::string>(prs_decompress(sf->data));
       } else if (sf->basename.ends_with(".dat")) {
-        c->proxy_session->last_dat_contents = make_shared<std::string>(prs_decompress(sf->data));
+        c->proxy_session->last_dat_contents = std::make_shared<std::string>(prs_decompress(sf->data));
       }
 
       if (c->proxy_session->last_bin_contents && c->proxy_session->last_dat_contents) {
@@ -1353,23 +1434,23 @@ static asio::awaitable<HandlerResult> S_13_A7(shared_ptr<Client> c, Channel::Mes
               c->version(),
               c->language());
 
-          auto map_file = make_shared<MapFile>(c->proxy_session->last_dat_contents);
+          auto map_file = std::make_shared<MapFile>(c->proxy_session->last_dat_contents);
           auto materialized_map_file = map_file->materialize_random_sections(c->proxy_session->lobby_random_seed);
 
-          array<shared_ptr<const MapFile>, NUM_VERSIONS> map_files;
+          std::array<std::shared_ptr<const MapFile>, NUM_VERSIONS> map_files;
           map_files.at(static_cast<size_t>(c->version())) = materialized_map_file;
-          auto supermap = make_shared<SuperMap>(map_files, meta.get_floor_to_area());
+          auto supermap = std::make_shared<SuperMap>(map_files, meta.get_floor_to_area());
 
-          c->proxy_session->map_state = make_shared<MapState>(
+          c->proxy_session->map_state = std::make_shared<MapState>(
               c->id,
               c->proxy_session->lobby_difficulty,
               c->proxy_session->lobby_event,
               c->proxy_session->lobby_random_seed,
               MapState::DEFAULT_RARE_ENEMIES,
-              make_shared<MT19937Generator>(c->proxy_session->lobby_random_seed),
+              std::make_shared<MT19937Generator>(c->proxy_session->lobby_random_seed),
               supermap);
 
-        } catch (const exception& e) {
+        } catch (const std::exception& e) {
           c->log.warning_f("Failed to load quest map: {}", e.what());
           c->proxy_session->map_state.reset();
         }
@@ -1385,7 +1466,7 @@ static asio::awaitable<HandlerResult> S_13_A7(shared_ptr<Client> c, Channel::Mes
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_G_B7(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_G_B7(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (is_ep3(c->version())) {
     if (c->check_flag(Client::Flag::PROXY_EP3_INFINITE_MESETA_ENABLED)) {
       auto& cmd = msg.check_size_t<S_RankUpdate_Ep3_B7>();
@@ -1401,7 +1482,7 @@ static asio::awaitable<HandlerResult> S_G_B7(shared_ptr<Client> c, Channel::Mess
   }
 }
 
-static asio::awaitable<HandlerResult> S_G_B8(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_G_B8(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
     if (msg.data.size() < 4) {
       c->log.warning_f("Card list data size is too small; not saving file");
@@ -1415,31 +1496,31 @@ static asio::awaitable<HandlerResult> S_G_B8(shared_ptr<Client> c, Channel::Mess
       co_return HandlerResult::FORWARD;
     }
 
-    string output_filename = std::format("card-definitions.{}.mnr", phosg::now());
+    std::string output_filename = std::format("card-definitions.{}.mnr", phosg::now());
     phosg::save_file(output_filename, r.read(size));
     c->log.info_f("Wrote {} bytes to {}", size, output_filename);
   }
 
-  // Unset the flag specifying that the client has newserv's card definitions,
-  // so the file sill be sent again if the client returns to newserv.
+  // Unset the flag specifying that the client has newserv's card definitions, so the file sill be sent again if the
+  // client returns to newserv.
   c->clear_flag(Client::Flag::HAS_EP3_CARD_DEFS);
 
   co_return is_ep3(c->version()) ? HandlerResult::FORWARD : HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_G_B9(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_G_B9(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (c->check_flag(Client::Flag::PROXY_SAVE_FILES)) {
     try {
       const auto& header = msg.check_size_t<S_UpdateMediaHeader_Ep3_B9>(0xFFFF);
 
       if (msg.data.size() - sizeof(header) < header.size) {
-        throw runtime_error("Media data size extends beyond end of command; not saving file");
+        throw std::runtime_error("Media data size extends beyond end of command; not saving file");
       }
 
-      string decompressed_data = prs_decompress(
+      std::string decompressed_data = prs_decompress(
           msg.data.data() + sizeof(header), msg.data.size() - sizeof(header));
 
-      string output_filename = std::format("media-update.{}", phosg::now());
+      std::string output_filename = std::format("media-update.{}", phosg::now());
       if (header.type == 1) {
         output_filename += ".gvm";
       } else if (header.type == 2 || header.type == 3) {
@@ -1449,17 +1530,16 @@ static asio::awaitable<HandlerResult> S_G_B9(shared_ptr<Client> c, Channel::Mess
       }
       phosg::save_file(output_filename, decompressed_data);
       c->log.info_f("Wrote {} bytes to {}", decompressed_data.size(), output_filename);
-    } catch (const exception& e) {
+    } catch (const std::exception& e) {
       c->log.warning_f("Failed to save file: {}", e.what());
     }
   }
 
-  // This command exists only in final Episode 3 and not in Trial Edition
-  // (hence not using is_ep3() here)
+  // This command exists only in final Episode 3 and not in Trial Edition (hence not using is_ep3() here)
   co_return (c->version() == Version::GC_EP3) ? HandlerResult::FORWARD : HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> C_G_B9(shared_ptr<Client> c, Channel::Message&) {
+static asio::awaitable<HandlerResult> C_G_B9(std::shared_ptr<Client> c, Channel::Message&) {
   if (c->proxy_session->suppress_next_ep3_media_update_confirmation) {
     c->proxy_session->suppress_next_ep3_media_update_confirmation = false;
     co_return HandlerResult::SUPPRESS;
@@ -1467,7 +1547,7 @@ static asio::awaitable<HandlerResult> C_G_B9(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_G_EF(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_G_EF(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (is_ep3(c->version())) {
     if (c->check_flag(Client::Flag::PROXY_EP3_INFINITE_MESETA_ENABLED)) {
       auto& cmd = msg.check_size_t<S_StartCardAuction_Ep3_EF>(offsetof(S_StartCardAuction_Ep3_EF, unused), 0xFFFF);
@@ -1482,13 +1562,12 @@ static asio::awaitable<HandlerResult> S_G_EF(shared_ptr<Client> c, Channel::Mess
   }
 }
 
-static asio::awaitable<HandlerResult> S_B_EF(shared_ptr<Client>, Channel::Message&) {
-  // See the comments on EF in CommandFormats.hh for why we unconditionally
-  // suppress these.
+static asio::awaitable<HandlerResult> S_B_EF(std::shared_ptr<Client>, Channel::Message&) {
+  // See the comments on EF in CommandFormats.hh for why we unconditionally suppress these.
   co_return HandlerResult::SUPPRESS;
 }
 
-static asio::awaitable<HandlerResult> S_G_BA(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_G_BA(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (c->check_flag(Client::Flag::PROXY_EP3_INFINITE_MESETA_ENABLED)) {
     auto& cmd = msg.check_size_t<S_MesetaTransaction_Ep3_BA>();
     if (cmd.current_meseta != 1000000) {
@@ -1499,7 +1578,7 @@ static asio::awaitable<HandlerResult> S_G_BA(shared_ptr<Client> c, Channel::Mess
   co_return HandlerResult::FORWARD;
 }
 
-static void update_leader_id(shared_ptr<Client> c, uint8_t leader_id) {
+static void update_leader_id(std::shared_ptr<Client> c, uint8_t leader_id) {
   if (c->proxy_session->leader_client_id != leader_id) {
     c->proxy_session->leader_client_id = leader_id;
     c->log.info_f("Changed room leader to {:X}", c->proxy_session->leader_client_id);
@@ -1511,7 +1590,7 @@ static void update_leader_id(shared_ptr<Client> c, uint8_t leader_id) {
 }
 
 template <typename CmdT>
-static asio::awaitable<HandlerResult> S_65_67_68_EB(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_65_67_68_EB(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (msg.command == 0x67) {
     c->proxy_session->clear_lobby_players(12);
     c->proxy_session->is_in_lobby = true;
@@ -1526,11 +1605,6 @@ static asio::awaitable<HandlerResult> S_65_67_68_EB(shared_ptr<Client> c, Channe
     c->proxy_session->item_creator.reset();
     c->proxy_session->map_state.reset();
 
-    // This command can cause the client to no longer send D6 responses when
-    // 1A/D5 large message boxes are closed. newserv keeps track of this
-    // behavior in the client config, so if it happens during a proxy session,
-    // update the client config that we'll restore if the client uses the change
-    // ship or change block command.
     if (c->check_flag(Client::Flag::NO_D6_AFTER_LOBBY)) {
       c->set_flag(Client::Flag::NO_D6);
     }
@@ -1549,7 +1623,7 @@ static asio::awaitable<HandlerResult> S_65_67_68_EB(shared_ptr<Client> c, Channe
     if (index >= c->proxy_session->lobby_players.size()) {
       c->log.warning_f("Ignoring invalid player index {} at position {}", index, x);
     } else {
-      string name = escape_player_name(entry.disp.visual.name.decode(entry.inventory.language));
+      std::string name = escape_player_name(entry.disp.visual.name.decode(entry.inventory.language));
       if (c->login && (entry.lobby_data.guild_card_number == c->proxy_session->remote_guild_card_number)) {
         num_replacements++;
         if (c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
@@ -1557,24 +1631,22 @@ static asio::awaitable<HandlerResult> S_65_67_68_EB(shared_ptr<Client> c, Channe
           modified = true;
         }
       } else if (c->check_flag(Client::Flag::PROXY_PLAYER_NOTIFICATIONS_ENABLED) && (msg.command != 0x67)) {
-        send_text_message_fmt(c->channel, "$C6Join: {}/{}\n{}",
-            index, entry.lobby_data.guild_card_number, name);
+        send_text_message_fmt(c->channel, "$C6Join: {}/{}\n{}", index, entry.lobby_data.guild_card_number, name);
       }
       auto& p = c->proxy_session->lobby_players[index];
       p.guild_card_number = entry.lobby_data.guild_card_number;
       p.name = name;
       p.language = entry.inventory.language;
-      p.section_id = entry.disp.visual.section_id;
-      p.char_class = entry.disp.visual.char_class;
-      c->log.info_f("Added lobby player: ({}) {} {}",
-          index, p.guild_card_number, p.name);
+      p.section_id = entry.disp.visual.sh.section_id;
+      p.char_class = entry.disp.visual.sh.char_class;
+      c->log.info_f("Added lobby player: ({}) {} {}", index, p.guild_card_number, p.name);
     }
   }
   if (num_replacements > 1) {
     c->log.warning_f("Proxied player appears multiple times in lobby");
   }
 
-  if constexpr (sizeof(cmd.lobby_flags) > sizeof(LobbyFlags_DCNTE)) {
+  if constexpr (sizeof(cmd.lobby_flags) > sizeof(LobbyFlagsDCNTE)) {
     c->proxy_session->lobby_event = cmd.lobby_flags.event;
     if (c->override_lobby_event != 0xFF) {
       cmd.lobby_flags.event = c->override_lobby_event;
@@ -1589,11 +1661,11 @@ static asio::awaitable<HandlerResult> S_65_67_68_EB(shared_ptr<Client> c, Channe
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-constexpr on_message_t S_N_65_67_68 = &S_65_67_68_EB<S_JoinLobby_DCNTE_65_67_68>;
-constexpr on_message_t S_DG_65_67_68_EB = &S_65_67_68_EB<S_JoinLobby_DC_GC_65_67_68_Ep3_EB>;
-constexpr on_message_t S_P_65_67_68 = &S_65_67_68_EB<S_JoinLobby_PC_65_67_68>;
-constexpr on_message_t S_X_65_67_68 = &S_65_67_68_EB<S_JoinLobby_XB_65_67_68>;
-constexpr on_message_t S_B_65_67_68 = &S_65_67_68_EB<S_JoinLobby_BB_65_67_68>;
+constexpr MessageHandler S_N_65_67_68 = &S_65_67_68_EB<S_JoinLobby_DCNTE_65_67_68>;
+constexpr MessageHandler S_DG_65_67_68_EB = &S_65_67_68_EB<S_JoinLobby_DC_GC_65_67_68_Ep3_EB>;
+constexpr MessageHandler S_P_65_67_68 = &S_65_67_68_EB<S_JoinLobby_PC_65_67_68>;
+constexpr MessageHandler S_X_65_67_68 = &S_65_67_68_EB<S_JoinLobby_XB_65_67_68>;
+constexpr MessageHandler S_B_65_67_68 = &S_65_67_68_EB<S_JoinLobby_BB_65_67_68>;
 
 template <typename CmdT>
 Episode get_episode(const CmdT&) {
@@ -1640,15 +1712,14 @@ Episode get_episode<S_JoinGame_Ep3_64>(const S_JoinGame_Ep3_64&) {
 }
 
 template <typename CmdT>
-static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_64(std::shared_ptr<Client> c, Channel::Message& msg) {
   CmdT* cmd;
   S_JoinGame_Ep3_64* cmd_ep3 = nullptr;
   if ((c->sub_version >= 0x40) && is_v3(c->version())) {
     cmd = &msg.check_size_t<CmdT>(sizeof(S_JoinGame_Ep3_64));
     cmd_ep3 = &msg.check_size_t<S_JoinGame_Ep3_64>();
   } else if (c->version() == Version::XB_V3) {
-    // Schtserv doesn't send the unknown_a1 field in this command, and we don't
-    // use it here, so we allow it to be omitted.
+    // Schtserv doesn't send the unknown_a1 field here, and we don't use it, so we allow it to be omitted.
     cmd = &msg.check_size_t<CmdT>(sizeof(CmdT) - 0x18, sizeof(CmdT));
   } else {
     cmd = &msg.check_size_t<CmdT>(0xFFFF);
@@ -1665,8 +1736,8 @@ static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Messag
     c->proxy_session->lobby_event = cmd->event;
     c->proxy_session->lobby_difficulty = cmd->difficulty;
     c->proxy_session->lobby_section_id = cmd->section_id;
-    // We only need the game mode for overriding drops, and SOLO behaves the same
-    // as NORMAL in that regard, so we can conveniently ignore SOLO here
+    // We only need the game mode for overriding drops, and SOLO behaves the same as NORMAL in that regard, so we can
+    // conveniently ignore SOLO here
     if (cmd->battle_mode) {
       c->proxy_session->lobby_mode = GameMode::BATTLE;
     } else if (cmd->challenge_mode) {
@@ -1692,7 +1763,7 @@ static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Messag
   } else {
     c->proxy_session->lobby_event = 0;
     c->proxy_session->lobby_difficulty = Difficulty::NORMAL;
-    c->proxy_session->lobby_section_id = c->character_file()->disp.visual.section_id;
+    c->proxy_session->lobby_section_id = c->character_file()->disp.visual.sh.section_id;
     c->proxy_session->lobby_mode = GameMode::NORMAL;
     c->proxy_session->lobby_random_seed = phosg::random_object<uint32_t>();
   }
@@ -1703,8 +1774,7 @@ static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Messag
   }
 
   if (c->version() == Version::GC_NTE) {
-    // GC NTE ignores the variations field entirely, so clear the array to
-    // ensure we'll load the correct maps
+    // GC NTE ignores the variations field entirely, so clear the array to ensure we'll load the correct maps
     cmd->variations = Variations();
   }
 
@@ -1712,15 +1782,18 @@ static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Messag
   auto s = c->require_server_state();
   c->proxy_session->set_drop_mode(s, c->version(), c->override_random_seed, c->proxy_session->drop_mode);
   if (!is_ep3(c->version()) && (c->proxy_session->lobby_mode != GameMode::CHALLENGE)) {
-    auto supermaps = s->supermaps_for_variations(
-        c->proxy_session->lobby_episode, c->proxy_session->lobby_mode, c->proxy_session->lobby_difficulty, cmd->variations);
-    c->proxy_session->map_state = make_shared<MapState>(
+    auto supermaps = s->data->supermaps_for_variations(
+        c->proxy_session->lobby_episode,
+        c->proxy_session->lobby_mode,
+        c->proxy_session->lobby_difficulty,
+        cmd->variations);
+    c->proxy_session->map_state = std::make_shared<MapState>(
         c->id,
         c->proxy_session->lobby_difficulty,
         c->proxy_session->lobby_event,
         c->proxy_session->lobby_random_seed,
         MapState::DEFAULT_RARE_ENEMIES,
-        make_shared<MT19937Generator>(c->proxy_session->lobby_random_seed),
+        std::make_shared<MT19937Generator>(c->proxy_session->lobby_random_seed),
         supermaps);
   } else {
     c->proxy_session->map_state.reset();
@@ -1741,8 +1814,8 @@ static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Messag
       const auto& p_ep3 = cmd_ep3->players_ep3[x];
       p.language = p_ep3.inventory.language;
       p.name = p_ep3.disp.visual.name.decode(p.language);
-      p.section_id = p_ep3.disp.visual.section_id;
-      p.char_class = p_ep3.disp.visual.char_class;
+      p.section_id = p_ep3.disp.visual.sh.section_id;
+      p.char_class = p_ep3.disp.visual.sh.char_class;
     } else {
       p.name.clear();
     }
@@ -1752,14 +1825,14 @@ static asio::awaitable<HandlerResult> S_64(shared_ptr<Client> c, Channel::Messag
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-constexpr on_message_t S_N_64 = &S_64<S_JoinGame_DCNTE_64>;
-constexpr on_message_t S_D_64 = &S_64<S_JoinGame_DC_64>;
-constexpr on_message_t S_P_64 = &S_64<S_JoinGame_PC_64>;
-constexpr on_message_t S_G_64 = &S_64<S_JoinGame_GC_64>;
-constexpr on_message_t S_X_64 = &S_64<S_JoinGame_XB_64>;
-constexpr on_message_t S_B_64 = &S_64<S_JoinGame_BB_64>;
+constexpr MessageHandler S_N_64 = &S_64<S_JoinGame_DCNTE_64>;
+constexpr MessageHandler S_D_64 = &S_64<S_JoinGame_DC_64>;
+constexpr MessageHandler S_P_64 = &S_64<S_JoinGame_PC_64>;
+constexpr MessageHandler S_G_64 = &S_64<S_JoinGame_GC_64>;
+constexpr MessageHandler S_X_64 = &S_64<S_JoinGame_XB_64>;
+constexpr MessageHandler S_B_64 = &S_64<S_JoinGame_BB_64>;
 
-static asio::awaitable<HandlerResult> S_E8(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> S_E8(std::shared_ptr<Client> c, Channel::Message& msg) {
   auto& cmd = msg.check_size_t<S_JoinSpectatorTeam_Ep3_E8>();
 
   c->floor = 0;
@@ -1800,8 +1873,8 @@ static asio::awaitable<HandlerResult> S_E8(shared_ptr<Client> c, Channel::Messag
     p.guild_card_number = player_entry.lobby_data.guild_card_number;
     p.language = player_entry.inventory.language;
     p.name = player_entry.disp.visual.name.decode(p.language);
-    p.section_id = player_entry.disp.visual.section_id;
-    p.char_class = player_entry.disp.visual.char_class;
+    p.section_id = player_entry.disp.visual.sh.section_id;
+    p.char_class = player_entry.disp.visual.sh.char_class;
     c->log.info_f("Added lobby player: ({}) {} {}", x, p.guild_card_number, p.name);
   }
 
@@ -1821,7 +1894,7 @@ static asio::awaitable<HandlerResult> S_E8(shared_ptr<Client> c, Channel::Messag
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> S_AC(shared_ptr<Client> c, Channel::Message&) {
+static asio::awaitable<HandlerResult> S_AC(std::shared_ptr<Client> c, Channel::Message&) {
   if (!c->proxy_session->is_in_game) {
     co_return HandlerResult::SUPPRESS;
   } else {
@@ -1830,16 +1903,16 @@ static asio::awaitable<HandlerResult> S_AC(shared_ptr<Client> c, Channel::Messag
   }
 }
 
-static asio::awaitable<HandlerResult> S_66_69_E9(shared_ptr<Client> c, Channel::Message& msg) {
-  // Schtserv sends a large command here for unknown reasons. The client ignores
-  // the extra data, so we allow the large command here.
+static asio::awaitable<HandlerResult> S_66_69_E9(std::shared_ptr<Client> c, Channel::Message& msg) {
+  // Schtserv sends a large command here for unknown reasons. The client ignores the extra data, so we allow the large
+  // command here.
   const auto& cmd = msg.check_size_t<S_LeaveLobby_66_69_Ep3_E9>(0xFFFF);
   size_t index = cmd.client_id;
   if (index >= c->proxy_session->lobby_players.size()) {
     c->log.warning_f("Lobby leave command references missing position");
   } else {
     auto& p = c->proxy_session->lobby_players[index];
-    string name = escape_player_name(p.name);
+    std::string name = escape_player_name(p.name);
     if (c->check_flag(Client::Flag::PROXY_PLAYER_NOTIFICATIONS_ENABLED)) {
       send_text_message_fmt(c->channel, "$C4Leave: {}/{}\n{}", index, p.guild_card_number, name);
     }
@@ -1851,7 +1924,7 @@ static asio::awaitable<HandlerResult> S_66_69_E9(shared_ptr<Client> c, Channel::
   co_return HandlerResult::FORWARD;
 }
 
-static asio::awaitable<HandlerResult> C_98(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_98(std::shared_ptr<Client> c, Channel::Message& msg) {
   c->floor = 0x0F;
   c->proxy_session->is_in_lobby = false;
   c->proxy_session->is_in_game = false;
@@ -1873,11 +1946,11 @@ static asio::awaitable<HandlerResult> C_98(shared_ptr<Client> c, Channel::Messag
   }
 }
 
-static asio::awaitable<HandlerResult> C_06(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_06(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (msg.data.size() >= 0x0C) {
     const auto& cmd = msg.check_size_t<SC_TextHeader_01_06_11_B0_EE>(0xFFFF);
 
-    string text = msg.data.substr(sizeof(cmd));
+    std::string text = msg.data.substr(sizeof(cmd));
     phosg::strip_trailing_zeroes(text);
 
     uint8_t private_flags = 0;
@@ -1893,7 +1966,7 @@ static asio::awaitable<HandlerResult> C_06(shared_ptr<Client> c, Channel::Messag
       } else {
         text = tt_decode_marked(text, c->language(), false);
       }
-    } catch (const runtime_error& e) {
+    } catch (const std::runtime_error& e) {
       c->log.warning_f("Failed to decode and unescape chat text: {}", e.what());
       text.clear();
     }
@@ -1902,7 +1975,10 @@ static asio::awaitable<HandlerResult> C_06(shared_ptr<Client> c, Channel::Messag
       co_return HandlerResult::FORWARD;
     }
 
-    char command_sentinel = (c->version() == Version::DC_11_2000) ? '@' : '$';
+    auto s = c->require_server_state();
+    char command_sentinel = s->data->chat_command_sentinel
+        ? s->data->chat_command_sentinel
+        : ((c->version() == Version::DC_11_2000) ? '@' : '$');
     bool is_command = (text[0] == command_sentinel) ||
         (text[0] == '\t' && text[1] != 'C' && text[2] == command_sentinel);
     if (is_command && c->check_flag(Client::Flag::PROXY_CHAT_COMMANDS_ENABLED)) {
@@ -1924,7 +2000,7 @@ static asio::awaitable<HandlerResult> C_06(shared_ptr<Client> c, Channel::Messag
   }
 }
 
-static asio::awaitable<HandlerResult> C_40(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_40(std::shared_ptr<Client> c, Channel::Message& msg) {
   bool modified = false;
   if (c->login && c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
     auto& cmd = msg.check_size_t<C_GuildCardSearch_40>();
@@ -1941,7 +2017,7 @@ static asio::awaitable<HandlerResult> C_40(shared_ptr<Client> c, Channel::Messag
 }
 
 template <typename CmdT>
-static asio::awaitable<HandlerResult> C_81(shared_ptr<Client> c, Channel::Message& msg) {
+static asio::awaitable<HandlerResult> C_81(std::shared_ptr<Client> c, Channel::Message& msg) {
   auto& cmd = msg.check_size_t<CmdT>();
   if (c->login && c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
     if (cmd.from_guild_card_number == c->login->account->account_id) {
@@ -1956,12 +2032,12 @@ static asio::awaitable<HandlerResult> C_81(shared_ptr<Client> c, Channel::Messag
   co_return HandlerResult::MODIFIED;
 }
 
-constexpr on_message_t C_DGX_81 = &C_81<SC_SimpleMail_DC_V3_81>;
-constexpr on_message_t C_P_81 = &C_81<SC_SimpleMail_PC_81>;
-constexpr on_message_t C_B_81 = &C_81<SC_SimpleMail_BB_81>;
+constexpr MessageHandler C_DGX_81 = &C_81<SC_SimpleMail_DC_V3_81>;
+constexpr MessageHandler C_P_81 = &C_81<SC_SimpleMail_PC_81>;
+constexpr MessageHandler C_B_81 = &C_81<SC_SimpleMail_BB_81>;
 
 template <typename SendGuildCardCmdT>
-asio::awaitable<HandlerResult> C_6x(shared_ptr<Client> c, Channel::Message& msg) {
+asio::awaitable<HandlerResult> C_6x(std::shared_ptr<Client> c, Channel::Message& msg) {
   if (msg.data.size() < 4) {
     co_return HandlerResult::FORWARD;
   }
@@ -1996,9 +2072,8 @@ asio::awaitable<HandlerResult> C_6x(shared_ptr<Client> c, Channel::Message& msg)
       break;
 
     case 0x06:
-      // On BB, the 6x06 command is blank - the server generates the actual
-      // Guild Card contents and sends it to the target client, so we only
-      // expect data here if the client isn't BB.
+      // On BB, the 6x06 command is blank - the server generates the actual Guild Card contents and sends it to the
+      // target client, so we only expect data here if the client isn't BB.
       if (!is_v4(c->version()) &&
           c->login &&
           c->login->account->account_id != c->proxy_session->remote_guild_card_number) {
@@ -2017,7 +2092,11 @@ asio::awaitable<HandlerResult> C_6x(shared_ptr<Client> c, Channel::Message& msg)
           bool is_boss = false;
           if (c->proxy_session->map_state) {
             auto ene_st = c->proxy_session->map_state->enemy_state_for_index(c->version(), cmd.enemy_index);
-            is_boss = type_definition_for_enemy(ene_st->super_ene->type).is_boss();
+            const auto& def = type_definition_for_enemy(ene_st->super_ene->type);
+            if (c->check_flag(Client::Flag::DEBUG_ENABLED)) {
+              send_text_message_fmt(c, "$C5E-{:03X} {}", ene_st->e_id, phosg::name_for_enum(ene_st->super_ene->type));
+            }
+            is_boss = def.is_boss();
           }
           if (!is_boss && !(cmd.game_flags & 0x00000800)) {
             cmd.game_flags |= 0x00000800;
@@ -2126,311 +2205,593 @@ asio::awaitable<HandlerResult> C_6x(shared_ptr<Client> c, Channel::Message& msg)
   co_return modified ? HandlerResult::MODIFIED : HandlerResult::FORWARD;
 }
 
-constexpr on_message_t C_N_6x = &C_6x<G_SendGuildCard_DCNTE_6x06>;
-constexpr on_message_t C_D_6x = &C_6x<G_SendGuildCard_DC_6x06>;
-constexpr on_message_t C_P_6x = &C_6x<G_SendGuildCard_PC_6x06>;
-constexpr on_message_t C_G_6x = &C_6x<G_SendGuildCard_GC_6x06>;
-constexpr on_message_t C_X_6x = &C_6x<G_SendGuildCard_XB_6x06>;
-constexpr on_message_t C_B_6x = &C_6x<G_SendGuildCard_BB_6x06>;
+constexpr MessageHandler C_N_6x = &C_6x<G_SendGuildCard_DCNTE_6x06>;
+constexpr MessageHandler C_D_6x = &C_6x<G_SendGuildCard_DC_6x06>;
+constexpr MessageHandler C_P_6x = &C_6x<G_SendGuildCard_PC_6x06>;
+constexpr MessageHandler C_G_6x = &C_6x<G_SendGuildCard_GC_6x06>;
+constexpr MessageHandler C_X_6x = &C_6x<G_SendGuildCard_XB_6x06>;
+constexpr MessageHandler C_B_6x = &C_6x<G_SendGuildCard_BB_6x06>;
 
-static asio::awaitable<HandlerResult> C_V123_A0_A1(shared_ptr<Client> c, Channel::Message&) {
-  // We override Change Ship and Change Block to send the player back to the
-  // original server (ending the proxy session), except on BB.
-  c->proxy_session->server_channel->disconnect();
-  co_return HandlerResult::SUPPRESS;
+static asio::awaitable<HandlerResult> C_V123_A0(std::shared_ptr<Client> c, Channel::Message&) {
+  // A0 is sent after downloading a quest (either successfully, or by backing out of the menu), and when choosing
+  // Change Ship from the lobby counter menu. We override the Change Ship action to end the proxy session, but we only
+  // do so if the player is in a lobby in order to properly handle the download quest case.
+  if (c->proxy_session->is_in_lobby) {
+    c->proxy_session->server_channel->disconnect();
+    co_return HandlerResult::SUPPRESS;
+  } else {
+    co_return HandlerResult::FORWARD;
+  }
 }
 
 // Indexed as [command][version][is_from_client]
-static_assert(NUM_VERSIONS == 14, "Don\'t forget to update the ProxyCommands handlers table");
-static on_message_t handlers[0x100][NUM_VERSIONS][2] = {
-    // clang-format off
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 00 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 01 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 02 */ {{S_V123U_02_17, nullptr}, {S_V123U_02_17, nullptr}, {S_V123U_02_17, nullptr},  {S_V123U_02_17, nullptr},     {S_V123U_02_17,    nullptr},     {S_V123U_02_17,    nullptr},      {S_V123U_02_17, nullptr},      {S_V123U_02_17, nullptr},      {S_V123U_02_17,    nullptr},     {S_V123U_02_17,    nullptr},      {S_V123U_02_17,    nullptr},      {S_V123U_02_17,    nullptr},      {S_V123U_02_17, nullptr},      {nullptr,      nullptr}},
-/* 03 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {S_B_03,       nullptr}},
-/* 04 */ {{S_U_04,        nullptr}, {S_U_04,        nullptr}, {S_V123_04,     nullptr},  {S_V123_04,     nullptr},     {S_V123_04,        nullptr},     {S_V123_04,        nullptr},      {S_V123_04,     nullptr},      {S_V123_04,     nullptr},      {S_V123_04,        nullptr},     {S_V123_04,        nullptr},      {S_V123_04,        nullptr},      {S_V123_04,        nullptr},      {S_V123_04,     nullptr},      {nullptr,      nullptr}},
-/* 05 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 06 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_V123_06,     nullptr},  {S_V123_06,     C_06},        {S_V123_06,        C_06},        {S_V123_06,        C_06},         {S_V123_06,     C_06},         {S_V123_06,     C_06},         {S_V123_06,        C_06},        {S_V123_06,        C_06},         {S_V123_06,        C_06},         {S_V123_06,        C_06},         {S_V123_06,     C_06},         {nullptr,      C_06}},
-/* 07 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 08 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 09 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 0A */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 0B */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 0C */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 0D */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 0E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 0F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 10 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 11 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 12 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 13 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_13_A7,       nullptr},  {S_13_A7,       nullptr},     {S_13_A7,          nullptr},     {S_13_A7,          nullptr},      {S_13_A7,       nullptr},      {S_13_A7,       nullptr},      {S_13_A7,          nullptr},     {S_13_A7,          nullptr},      {S_13_A7,          nullptr},      {S_13_A7,          nullptr},      {S_13_A7,       nullptr},      {S_13_A7,      nullptr}},
-/* 14 */ {{S_19_U_14,     nullptr}, {S_19_U_14,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 15 */ {{nullptr,       nullptr}, {nullptr,       nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 16 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 17 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_V123U_02_17, nullptr},  {S_V123U_02_17, nullptr},     {S_V123U_02_17,    nullptr},     {S_V123U_02_17,    nullptr},      {S_V123U_02_17, nullptr},      {S_V123U_02_17, nullptr},      {S_V123U_02_17,    nullptr},     {S_V123U_02_17,    nullptr},      {S_V123U_02_17,    nullptr},      {S_V123U_02_17,    nullptr},      {S_V123U_02_17, nullptr},      {S_invalid,    nullptr}},
-/* 18 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {S_invalid,    nullptr}},
-/* 19 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_19_U_14,     nullptr},  {S_19_U_14,     nullptr},     {S_19_U_14,        nullptr},     {S_19_U_14,        nullptr},      {S_19_U_14,     nullptr},      {S_19_U_14,     nullptr},      {S_19_U_14,        nullptr},     {S_19_U_14,        nullptr},      {S_19_U_14,        nullptr},      {S_19_U_14,        nullptr},      {S_19_U_14,     nullptr},      {S_19_U_14,    nullptr}},
-/* 1A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {S_V3_1A_D5,       nullptr},      {S_V3_1A_D5,       nullptr},      {S_V3_1A_D5,       nullptr},      {S_V3_1A_D5,    nullptr},      {nullptr,      nullptr}},
-/* 1B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {S_invalid,    nullptr}},
-/* 1C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {S_invalid,    nullptr}},
-/* 1D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_1D,          C_1D},     {S_1D,          C_1D},        {S_1D,             C_1D},        {S_1D,             C_1D},         {S_1D,          C_1D},         {S_1D,          C_1D},         {S_1D,             C_1D},        {S_1D,             C_1D},         {S_1D,             C_1D},         {S_1D,             C_1D},         {S_1D,          C_1D},         {S_1D,         C_1D}},
-/* 1E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 1F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 20 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 21 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 22 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_B_22,       nullptr}},
-/* 23 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* 24 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* 25 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* 26 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 27 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 28 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 29 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 2A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 2B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 2C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 2D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 2E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 2F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 30 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 31 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 32 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 33 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 34 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 35 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 36 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 37 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 38 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 39 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 3A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 3B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 3C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 3D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 3E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 3F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 40 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     C_40},        {S_invalid,        C_40},        {S_invalid,        C_40},         {S_invalid,     C_40},         {S_invalid,     C_40},         {S_invalid,        C_40},        {S_invalid,        C_40},         {S_invalid,        C_40},         {S_invalid,        C_40},         {S_invalid,     C_40},         {S_invalid,    C_40}},
-/* 41 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_DGX_41,      nullptr},  {S_DGX_41,      nullptr},     {S_DGX_41,         nullptr},     {S_DGX_41,         nullptr},      {S_P_41,        nullptr},      {S_P_41,        nullptr},      {S_DGX_41,         nullptr},     {S_DGX_41,         nullptr},      {S_DGX_41,         nullptr},      {S_DGX_41,         nullptr},      {S_DGX_41,      nullptr},      {S_B_41,       nullptr}},
-/* 42 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 43 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 44 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_D_44_A6,     nullptr},     {S_D_44_A6,        nullptr},     {S_D_44_A6,        nullptr},      {S_PG_44_A6,    nullptr},      {S_PG_44_A6,    nullptr},      {S_D_44_A6,        nullptr},     {S_PG_44_A6,       nullptr},      {S_PG_44_A6,       nullptr},      {S_PG_44_A6,       nullptr},      {S_X_44_A6,     nullptr},      {S_B_44_A6,    nullptr}},
-/* 45 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 46 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 47 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 48 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 49 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 4A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 4B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 4C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 4D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 4E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 4F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 50 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 51 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 52 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 53 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 54 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 55 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 56 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 57 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 58 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 59 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 5A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 5B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 5C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 5D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 5E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 5F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 60 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_6x,          C_N_6x},   {S_6x,          C_D_6x},      {S_6x,             C_D_6x},      {S_6x,             C_D_6x},       {S_6x,          C_P_6x},       {S_6x,          C_P_6x},       {S_6x,             C_D_6x},      {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,          C_X_6x},       {S_6x,         C_B_6x}},
-/* 61 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        C_GXB_61},     {S_invalid,        C_GXB_61},     {S_invalid,        C_GXB_61},     {S_invalid,     C_GXB_61},     {S_invalid,    C_GXB_61}},
-/* 62 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_6x,          C_N_6x},   {S_6x,          C_D_6x},      {S_6x,             C_D_6x},      {S_6x,             C_D_6x},       {S_6x,          C_P_6x},       {S_6x,          C_P_6x},       {S_6x,             C_D_6x},      {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,          C_X_6x},       {S_6x,         C_B_6x}},
-/* 63 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 64 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_N_64,        nullptr},  {S_N_64,        nullptr},     {S_D_64,           nullptr},     {S_D_64,           nullptr},      {S_P_64,        nullptr},      {S_P_64,        nullptr},      {S_G_64,           nullptr},     {S_G_64,           nullptr},      {S_G_64,           nullptr},      {S_G_64,           nullptr},      {S_X_64,        nullptr},      {S_B_64,       nullptr}},
-/* 65 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_N_65_67_68,  nullptr},  {S_N_65_67_68,  nullptr},      {S_DG_65_67_68_EB, nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_P_65_67_68,  nullptr},      {S_P_65_67_68,  nullptr},      {S_DG_65_67_68_EB, nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_X_65_67_68,  nullptr},      {S_B_65_67_68, nullptr}},
-/* 66 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_66_69_E9,    nullptr},  {S_66_69_E9,    nullptr},     {S_66_69_E9,       nullptr},     {S_66_69_E9,       nullptr},      {S_66_69_E9,    nullptr},      {S_66_69_E9,    nullptr},      {S_66_69_E9,       nullptr},     {S_66_69_E9,       nullptr},      {S_66_69_E9,       nullptr},      {S_66_69_E9,       nullptr},      {S_66_69_E9,    nullptr},      {S_66_69_E9,   nullptr}},
-/* 67 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_N_65_67_68,  nullptr},  {S_N_65_67_68,  nullptr},      {S_DG_65_67_68_EB, nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_P_65_67_68,  nullptr},      {S_P_65_67_68,  nullptr},      {S_DG_65_67_68_EB, nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_X_65_67_68,  nullptr},      {S_B_65_67_68, nullptr}},
-/* 68 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_N_65_67_68,  nullptr},  {S_N_65_67_68,  nullptr},      {S_DG_65_67_68_EB, nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_P_65_67_68,  nullptr},      {S_P_65_67_68,  nullptr},      {S_DG_65_67_68_EB, nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_X_65_67_68,  nullptr},      {S_B_65_67_68, nullptr}},
-/* 69 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_66_69_E9,    nullptr},  {S_66_69_E9,    nullptr},     {S_66_69_E9,       nullptr},     {S_66_69_E9,       nullptr},      {S_66_69_E9,    nullptr},      {S_66_69_E9,    nullptr},      {S_66_69_E9,       nullptr},     {S_66_69_E9,       nullptr},      {S_66_69_E9,       nullptr},      {S_66_69_E9,       nullptr},      {S_66_69_E9,    nullptr},      {S_66_69_E9,   nullptr}},
-/* 6A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 6B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 6C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_6x,          C_N_6x},   {S_6x,          C_D_6x},      {S_6x,             C_D_6x},      {S_6x,             C_D_6x},       {S_6x,          C_P_6x},       {S_6x,          C_P_6x},       {S_6x,             C_D_6x},      {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,          C_X_6x},       {S_6x,         C_B_6x}},
-/* 6D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_6x,          C_N_6x},   {S_6x,          C_D_6x},      {S_6x,             C_D_6x},      {S_6x,             C_D_6x},       {S_6x,          C_P_6x},       {S_6x,          C_P_6x},       {S_6x,             C_D_6x},      {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,             C_G_6x},       {S_6x,          C_X_6x},       {S_6x,         C_B_6x}},
-/* 6E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 6F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 70 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 71 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 72 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 73 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 74 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 75 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 76 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 77 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 78 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 79 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 7A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 7B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 7C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 7D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 7E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 7F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 80 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 81 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_DGX_81,      C_DGX_81}, {S_DGX_81,      C_DGX_81},    {S_DGX_81,         C_DGX_81},    {S_DGX_81,         C_DGX_81},     {S_P_81,        C_P_81},       {S_P_81,        C_P_81},       {S_DGX_81,         C_DGX_81},    {S_DGX_81,         C_DGX_81},     {S_DGX_81,         C_DGX_81},     {S_DGX_81,         C_DGX_81},     {S_DGX_81,      C_DGX_81},     {S_B_81,       C_B_81}},
-/* 82 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 83 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 84 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 85 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 86 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 87 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 88 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {S_88,          nullptr},     {S_88,             nullptr},     {S_88,             nullptr},      {S_88,          nullptr},      {S_88,          nullptr},      {S_88,             nullptr},     {S_88,             nullptr},      {S_88,             nullptr},      {S_88,             nullptr},      {S_88,          nullptr},      {S_88,         nullptr}},
-/* 89 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 8A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 8B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 8C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 8D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 8E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 8F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {nullptr,       nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* 90 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 91 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 92 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 93 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 94 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 95 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 96 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 97 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_97,          nullptr},     {S_97,             nullptr},     {S_97,             nullptr},      {S_97,          nullptr},      {S_97,          nullptr},      {S_97,             nullptr},     {S_97,             nullptr},      {S_97,             nullptr},      {S_97,             nullptr},      {S_97,          nullptr},      {nullptr,      nullptr}},
-/* 98 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     C_98},        {S_invalid,        C_98},        {S_invalid,        C_98},         {S_invalid,     C_98},         {S_invalid,     C_98},         {S_invalid,        C_98},        {S_invalid,        C_98},         {S_invalid,        C_98},         {S_invalid,        C_98},         {S_invalid,     C_98},         {S_invalid,    C_98}},
-/* 99 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 9A */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {S_G_9A,           nullptr},      {S_G_9A,           nullptr},      {S_G_9A,           nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 9B */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 9C */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* 9D */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 9E */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* 9F */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* A0 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       C_V123_A0_A1},{nullptr,          C_V123_A0_A1},{nullptr,          C_V123_A0_A1}, {nullptr,       C_V123_A0_A1}, {nullptr,       C_V123_A0_A1}, {nullptr,          C_V123_A0_A1},{nullptr,          C_V123_A0_A1}, {nullptr,          C_V123_A0_A1}, {nullptr,          C_V123_A0_A1}, {nullptr,       C_V123_A0_A1}, {nullptr,      nullptr}},
-/* A1 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       C_V123_A0_A1},{nullptr,          C_V123_A0_A1},{nullptr,          C_V123_A0_A1}, {nullptr,       C_V123_A0_A1}, {nullptr,       C_V123_A0_A1}, {nullptr,          C_V123_A0_A1},{nullptr,          C_V123_A0_A1}, {nullptr,          C_V123_A0_A1}, {nullptr,          C_V123_A0_A1}, {nullptr,       C_V123_A0_A1}, {nullptr,      nullptr}},
-/* A2 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* A3 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* A4 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* A5 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* A6 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_D_44_A6,     nullptr},     {S_D_44_A6,        nullptr},     {S_D_44_A6,        nullptr},      {S_PG_44_A6,    nullptr},      {S_PG_44_A6,    nullptr},      {S_D_44_A6,        nullptr},     {S_PG_44_A6,       nullptr},      {S_PG_44_A6,       nullptr},      {S_PG_44_A6,       nullptr},      {S_X_44_A6,     nullptr},      {S_B_44_A6,    nullptr}},
-/* A7 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_13_A7,       nullptr},     {S_13_A7,          nullptr},     {S_13_A7,          nullptr},      {S_13_A7,       nullptr},      {S_13_A7,       nullptr},      {S_13_A7,          nullptr},     {S_13_A7,          nullptr},      {S_13_A7,          nullptr},      {S_13_A7,          nullptr},      {S_13_A7,       nullptr},      {S_13_A7,      nullptr}},
-/* A8 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* A9 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* AA */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* AB */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* AC */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_AC,             nullptr},      {S_AC,             nullptr},      {S_AC,             nullptr},      {S_AC,          nullptr},      {S_AC,         nullptr}},
-/* AD */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* AE */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* AF */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* B0 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* B1 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {S_B1,             nullptr},     {S_B1,             nullptr},      {S_B1,          nullptr},      {S_B1,          nullptr},      {S_B1,             nullptr},     {S_B1,             nullptr},      {S_B1,             nullptr},      {S_B1,             nullptr},      {S_B1,          nullptr},      {S_B1,         nullptr}},
-/* B2 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {S_B2<false>,      nullptr},      {S_B2<false>,   nullptr},      {S_B2<false>,   nullptr},      {S_B2<true>,       nullptr},     {S_B2<true>,       nullptr},      {S_B2<true>,       nullptr},      {S_B2<true>,       nullptr},      {S_B2<false>,   nullptr},      {S_B2<false>,  nullptr}},
-/* B3 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        C_B3},         {S_invalid,     C_B3},         {S_invalid,     C_B3},         {S_invalid,        C_B3},        {S_invalid,        C_B3},         {S_invalid,        C_B3},         {S_invalid,        C_B3},         {S_invalid,     C_B3},         {S_invalid,    C_B3}},
-/* B4 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* B5 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* B6 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* B7 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_G_B7,           nullptr},      {S_G_B7,           nullptr},      {S_G_B7,           nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* B8 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_G_B8,           nullptr},      {S_G_B8,           nullptr},      {S_G_B8,           nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* B9 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_G_B9,           C_G_B9},       {S_G_B9,           C_G_B9},       {S_G_B9,           C_G_B9},       {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* BA */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_G_BA,           nullptr},      {S_G_BA,           nullptr},      {S_G_BA,           nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* BB */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* BC */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* BD */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* BE */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* BF */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* C0 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {nullptr,       nullptr},     {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* C1 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* C2 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* C3 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* C4 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_DGX_C4,         nullptr},      {S_P_C4,        nullptr},      {S_P_C4,        nullptr},      {S_DGX_C4,         nullptr},     {S_DGX_C4,         nullptr},      {S_DGX_C4,         nullptr},      {S_DGX_C4,         nullptr},      {S_DGX_C4,      nullptr},      {S_B_C4,       nullptr}},
-/* C5 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,       nullptr},      {nullptr,          nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* C6 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* C7 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* C8 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* C9 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_6x,             nullptr},      {S_6x,             nullptr},      {S_6x,             nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* CA */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* CB */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_6x,             nullptr},      {S_6x,             nullptr},      {S_6x,             nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* CC */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* CD */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* CE */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* CF */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* D0 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* D1 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* D2 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* D3 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* D4 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* D5 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_V3_1A_D5,       nullptr},      {S_V3_1A_D5,       nullptr},      {S_V3_1A_D5,       nullptr},      {S_V3_1A_D5,    nullptr},      {nullptr,      nullptr}},
-/* D6 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* D7 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* D8 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,       nullptr},      {nullptr,      nullptr}},
-/* D9 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        C_GX_D9},      {S_invalid,        C_GX_D9},      {S_invalid,        C_GX_D9},      {S_invalid,     C_GX_D9},      {S_invalid,    C_B_D9}},
-/* DA */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_V3_BB_DA,       nullptr},      {S_V3_BB_DA,       nullptr},      {S_V3_BB_DA,       nullptr},      {S_V3_BB_DA,    nullptr},      {S_V3_BB_DA,   nullptr}},
-/* DB */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* DC */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* DD */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* DE */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* DF */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* E0 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      C_B_E0}},
-/* E1 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* E2 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {S_B_E2,       nullptr}},
-/* E3 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* E4 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_G_E4,           nullptr},      {S_G_E4,           nullptr},      {S_G_E4,           nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* E5 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* E6 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {S_B_E6,       nullptr}},
-/* E7 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {S_B_E7,       nullptr}},
-/* E8 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_E8,             nullptr},      {S_E8,             nullptr},      {S_E8,             nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* E9 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_66_69_E9,       nullptr},      {S_66_69_E9,       nullptr},      {S_66_69_E9,       nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* EA */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* EB */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_DG_65_67_68_EB, nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* EC */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* ED */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* EE */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {nullptr,          nullptr},      {nullptr,          nullptr},      {nullptr,          nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* EF */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_G_EF,           nullptr},      {S_G_EF,           nullptr},      {S_G_EF,           nullptr},      {S_invalid,     nullptr},      {S_B_EF,       nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-/* F0 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {nullptr,      nullptr}},
-/* F1 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F2 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F3 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F4 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F5 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F6 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F7 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F8 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* F9 */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* FA */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* FB */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* FC */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* FD */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* FE */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-/* FF */ {{S_invalid,     nullptr}, {S_invalid,     nullptr}, {S_invalid,     nullptr},  {S_invalid,     nullptr},     {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,     nullptr},      {S_invalid,        nullptr},     {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,        nullptr},      {S_invalid,     nullptr},      {S_invalid,    nullptr}},
-// CMD     S_PC_PATCH     C          S_BB_PATCH     C          S_DC_NTE       C           S_DC_12_2000   C              S_DC_V1           C              S_DC_V2           C               S_PC_NTE       C               S_PC_V2        C               S_GC_NTE          C              S_GC_V3           C               S_GC_EP3_NTE      C               S_GC_EP3          C               S_XB_V3        C               S_BB_V4       C
-    // clang-format on
-};
+static_assert(NUM_VERSIONS == 14, "Don\'t forget to update the ProxyCommands handler tables");
+// clang-format off
+static std::array<std::array<MessageHandler, NUM_VERSIONS>, 0x100> server_handlers{{
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 00 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 01 */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 02 */ {S_V123U_02_17, S_V123U_02_17, S_V123U_02_17, S_V123U_02_17, S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17, S_V123U_02_17, S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17, nullptr},
+/* 03 */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       S_B_03},
+/* 04 */ {S_U_04,        S_U_04,        S_V123_04,     S_V123_04,     S_V123_04,        S_V123_04,        S_V123_04,     S_V123_04,     S_V123_04,        S_V123_04,        S_V123_04,        S_V123_04,        S_V123_04,     nullptr},
+/* 05 */ {nullptr,       nullptr,       nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 06 */ {nullptr,       nullptr,       S_V123_06,     S_V123_06,     S_V123_06,        S_V123_06,        S_V123_06,     S_V123_06,     S_V123_06,        S_V123_06,        S_V123_06,        S_V123_06,        S_V123_06,     nullptr},
+/* 07 */ {nullptr,       nullptr,       nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 08 */ {nullptr,       nullptr,       nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 09 */ {nullptr,       nullptr,       S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 0A */ {nullptr,       nullptr,       S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 0B */ {nullptr,       nullptr,       S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 0C */ {nullptr,       nullptr,       S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 0D */ {nullptr,       nullptr,       S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 0E */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 0F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 10 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 11 */ {nullptr,       nullptr,       nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 12 */ {nullptr,       nullptr,       nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 13 */ {nullptr,       nullptr,       S_13_A7,       S_13_A7,       S_13_A7,          S_13_A7,          S_13_A7,       S_13_A7,       S_13_A7,          S_13_A7,          S_13_A7,          S_13_A7,          S_13_A7,       S_13_A7},
+/* 14 */ {S_19_U_14,     S_19_U_14,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 15 */ {nullptr,       nullptr,       S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 16 */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 17 */ {S_invalid,     S_invalid,     S_V123U_02_17, S_V123U_02_17, S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17, S_V123U_02_17, S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17,    S_V123U_02_17, S_invalid},
+/* 18 */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       S_invalid},
+/* 19 */ {S_invalid,     S_invalid,     S_19_U_14,     S_19_U_14,     S_19_U_14,        S_19_U_14,        S_19_U_14,     S_19_U_14,     S_19_U_14,        S_19_U_14,        S_19_U_14,        S_19_U_14,        S_19_U_14,     S_19_U_14},
+/* 1A */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          S_V3_1A_D5,       S_V3_1A_D5,       S_V3_1A_D5,       S_V3_1A_D5,    nullptr},
+/* 1B */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       S_invalid},
+/* 1C */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       S_invalid},
+/* 1D */ {S_invalid,     S_invalid,     S_1D,          S_1D,          S_1D,             S_1D,             S_1D,          S_1D,          S_1D,             S_1D,             S_1D,             S_1D,             S_1D,          S_1D},
+/* 1E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 1F */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 20 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 21 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 22 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_B_22},
+/* 23 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* 24 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* 25 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* 26 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 27 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 28 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 29 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 2A */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 2B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 2C */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 2D */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 2E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 2F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 30 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 31 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 32 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 33 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 34 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 35 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 36 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 37 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 38 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 39 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 3A */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 3B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 3C */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 3D */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 3E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 3F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 40 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 41 */ {S_invalid,     S_invalid,     S_DGX_41,      S_DGX_41,      S_DGX_41,         S_DGX_41,         S_P_41,        S_P_41,        S_DGX_41,         S_DGX_41,         S_DGX_41,         S_DGX_41,         S_DGX_41,      S_B_41},
+/* 42 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 43 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 44 */ {S_invalid,     S_invalid,     S_invalid,     S_D_44_A6,     S_D_44_A6,        S_D_44_A6,        S_PG_44_A6,    S_PG_44_A6,    S_D_44_A6,        S_PG_44_A6,       S_PG_44_A6,       S_PG_44_A6,       S_X_44_A6,     S_B_44_A6},
+/* 45 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 46 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 47 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 48 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 49 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 4A */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 4B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 4C */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 4D */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 4E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 4F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 50 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 51 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 52 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 53 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 54 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 55 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 56 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 57 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 58 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 59 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 5A */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 5B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 5C */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 5D */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 5E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 5F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 60 */ {S_invalid,     S_invalid,     S_6x,          S_6x,          S_6x,             S_6x,             S_6x,          S_6x,          S_6x,             S_6x,             S_6x,             S_6x,             S_6x,          S_6x},
+/* 61 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 62 */ {S_invalid,     S_invalid,     S_6x,          S_6x,          S_6x,             S_6x,             S_6x,          S_6x,          S_6x,             S_6x,             S_6x,             S_6x,             S_6x,          S_6x},
+/* 63 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 64 */ {S_invalid,     S_invalid,     S_N_64,        S_N_64,        S_D_64,           S_D_64,           S_P_64,        S_P_64,        S_G_64,           S_G_64,           S_G_64,           S_G_64,           S_X_64,        S_B_64},
+/* 65 */ {S_invalid,     S_invalid,     S_N_65_67_68,  S_N_65_67_68,  S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_P_65_67_68,  S_P_65_67_68,  S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_X_65_67_68,  S_B_65_67_68},
+/* 66 */ {S_invalid,     S_invalid,     S_66_69_E9,    S_66_69_E9,    S_66_69_E9,       S_66_69_E9,       S_66_69_E9,    S_66_69_E9,    S_66_69_E9,       S_66_69_E9,       S_66_69_E9,       S_66_69_E9,       S_66_69_E9,    S_66_69_E9},
+/* 67 */ {S_invalid,     S_invalid,     S_N_65_67_68,  S_N_65_67_68,  S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_P_65_67_68,  S_P_65_67_68,  S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_X_65_67_68,  S_B_65_67_68},
+/* 68 */ {S_invalid,     S_invalid,     S_N_65_67_68,  S_N_65_67_68,  S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_P_65_67_68,  S_P_65_67_68,  S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_X_65_67_68,  S_B_65_67_68},
+/* 69 */ {S_invalid,     S_invalid,     S_66_69_E9,    S_66_69_E9,    S_66_69_E9,       S_66_69_E9,       S_66_69_E9,    S_66_69_E9,    S_66_69_E9,       S_66_69_E9,       S_66_69_E9,       S_66_69_E9,       S_66_69_E9,    S_66_69_E9},
+/* 6A */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 6B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 6C */ {S_invalid,     S_invalid,     S_6x,          S_6x,          S_6x,             S_6x,             S_6x,          S_6x,          S_6x,             S_6x,             S_6x,             S_6x,             S_6x,          S_6x},
+/* 6D */ {S_invalid,     S_invalid,     S_6x,          S_6x,          S_6x,             S_6x,             S_6x,          S_6x,          S_6x,             S_6x,             S_6x,             S_6x,             S_6x,          S_6x},
+/* 6E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 6F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 70 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 71 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 72 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 73 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 74 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 75 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 76 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 77 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 78 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 79 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 7A */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 7B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 7C */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 7D */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 7E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 7F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 80 */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 81 */ {S_invalid,     S_invalid,     S_DGX_81,      S_DGX_81,      S_DGX_81,         S_DGX_81,         S_P_81,        S_P_81,        S_DGX_81,         S_DGX_81,         S_DGX_81,         S_DGX_81,         S_DGX_81,      S_B_81},
+/* 82 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 83 */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 84 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 85 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 86 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 87 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 88 */ {S_invalid,     S_invalid,     nullptr,       S_88,          S_88,             S_88,             S_88,          S_88,          S_88,             S_88,             S_88,             S_88,             S_88,          S_88},
+/* 89 */ {S_invalid,     S_invalid,     nullptr,       S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 8A */ {S_invalid,     S_invalid,     nullptr,       nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 8B */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 8C */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 8D */ {S_invalid,     S_invalid,     nullptr,       S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 8E */ {S_invalid,     S_invalid,     nullptr,       S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 8F */ {S_invalid,     S_invalid,     nullptr,       S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* 90 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 91 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 92 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 93 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 94 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 95 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 96 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 97 */ {S_invalid,     S_invalid,     S_invalid,     S_97,          S_97,             S_97,             S_97,          S_97,          S_97,             S_97,             S_97,             S_97,             S_97,          nullptr},
+/* 98 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 99 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 9A */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          S_G_9A,           S_G_9A,           S_G_9A,           nullptr,       nullptr},
+/* 9B */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 9C */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* 9D */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 9E */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* 9F */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* A0 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* A1 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* A2 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* A3 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* A4 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* A5 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* A6 */ {S_invalid,     S_invalid,     S_invalid,     S_D_44_A6,     S_D_44_A6,        S_D_44_A6,        S_PG_44_A6,    S_PG_44_A6,    S_D_44_A6,        S_PG_44_A6,       S_PG_44_A6,       S_PG_44_A6,       S_X_44_A6,     S_B_44_A6},
+/* A7 */ {S_invalid,     S_invalid,     S_invalid,     S_13_A7,       S_13_A7,          S_13_A7,          S_13_A7,       S_13_A7,       S_13_A7,          S_13_A7,          S_13_A7,          S_13_A7,          S_13_A7,       S_13_A7},
+/* A8 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* A9 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* AA */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* AB */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* AC */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_AC,             S_AC,             S_AC,             S_AC,          S_AC},
+/* AD */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* AE */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* AF */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* B0 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* B1 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       S_B1,             S_B1,             S_B1,          S_B1,          S_B1,             S_B1,             S_B1,             S_B1,             S_B1,          S_B1},
+/* B2 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          S_B2<false>,      S_B2<false>,   S_B2<false>,   S_B2<true>,       S_B2<true>,       S_B2<true>,       S_B2<true>,       S_B2<false>,   S_B2<false>},
+/* B3 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* B4 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* B5 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* B6 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* B7 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_G_B7,           S_G_B7,           S_G_B7,           S_invalid,     S_invalid},
+/* B8 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_G_B8,           S_G_B8,           S_G_B8,           S_invalid,     nullptr},
+/* B9 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_G_B9,           S_G_B9,           S_G_B9,           S_invalid,     S_invalid},
+/* BA */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_G_BA,           S_G_BA,           S_G_BA,           S_invalid,     S_invalid},
+/* BB */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     S_invalid},
+/* BC */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* BD */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* BE */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* BF */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* C0 */ {S_invalid,     S_invalid,     S_invalid,     nullptr,       nullptr,          nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* C1 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* C2 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* C3 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* C4 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_DGX_C4,         S_P_C4,        S_P_C4,        S_DGX_C4,         S_DGX_C4,         S_DGX_C4,         S_DGX_C4,         S_DGX_C4,      S_B_C4},
+/* C5 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,       nullptr,       nullptr,          nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* C6 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* C7 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* C8 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* C9 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_6x,             S_6x,             S_6x,             S_invalid,     S_invalid},
+/* CA */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* CB */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_6x,             S_6x,             S_6x,             S_invalid,     S_invalid},
+/* CC */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     S_invalid},
+/* CD */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* CE */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* CF */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* D0 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* D1 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* D2 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* D3 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* D4 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* D5 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_V3_1A_D5,       S_V3_1A_D5,       S_V3_1A_D5,       S_V3_1A_D5,    nullptr},
+/* D6 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* D7 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* D8 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          nullptr,       nullptr},
+/* D9 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* DA */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_V3_BB_DA,       S_V3_BB_DA,       S_V3_BB_DA,       S_V3_BB_DA,    S_V3_BB_DA},
+/* DB */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* DC */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     S_B_DC},
+/* DD */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* DE */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* DF */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* E0 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     nullptr},
+/* E1 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     nullptr},
+/* E2 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     S_B_E2},
+/* E3 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     nullptr},
+/* E4 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_G_E4,           S_G_E4,           S_G_E4,           S_invalid,     nullptr},
+/* E5 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* E6 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     S_B_E6},
+/* E7 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     S_B_E7},
+/* E8 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_E8,             S_E8,             S_E8,             S_invalid,     nullptr},
+/* E9 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_66_69_E9,       S_66_69_E9,       S_66_69_E9,       S_invalid,     nullptr},
+/* EA */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     nullptr},
+/* EB */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_DG_65_67_68_EB, S_invalid,     S_B_EB},
+/* EC */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* ED */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     nullptr},
+/* EE */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        nullptr,          nullptr,          nullptr,          S_invalid,     nullptr},
+/* EF */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_G_EF,           S_G_EF,           S_G_EF,           S_invalid,     S_B_EF},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+/* F0 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     nullptr},
+/* F1 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F2 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F3 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F4 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F5 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F6 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F7 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F8 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* F9 */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* FA */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* FB */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* FC */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* FD */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* FE */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+/* FF */ {S_invalid,     S_invalid,     S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,     S_invalid,     S_invalid,        S_invalid,        S_invalid,        S_invalid,        S_invalid,     S_invalid},
+// CMD    PC_PATCH       BB_PATCH       DC_NTE         DC_11_2000     DC_V1             DC_V2             PC_NTE         PC_V2          GC_NTE            GC_V3             GC_EP3_NTE        GC_EP3            XB_V3          BB_V4
+}};
+static std::array<std::array<MessageHandler, NUM_VERSIONS>, 0x100> client_handlers{{
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 00 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 01 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 02 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 03 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 04 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 05 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 06 */ {nullptr, nullptr, nullptr,  C_06,      C_06,      C_06,      C_06,      C_06,      C_06,      C_06,      C_06,      C_06,      C_06,      C_06},
+/* 07 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 08 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 09 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 0A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 0B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 0C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 0D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 0E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 0F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 10 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 11 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 12 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 13 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 14 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 15 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 16 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 17 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 18 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 19 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 1A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 1B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 1C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 1D */ {nullptr, nullptr, C_1D,     C_1D,      C_1D,      C_1D,      C_1D,      C_1D,      C_1D,      C_1D,      C_1D,      C_1D,      C_1D,      C_1D},
+/* 1E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 1F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 20 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 21 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 22 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 23 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 24 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 25 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 26 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 27 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 28 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 29 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 2A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 2B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 2C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 2D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 2E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 2F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 30 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 31 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 32 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 33 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 34 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 35 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 36 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 37 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 38 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 39 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 3A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 3B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 3C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 3D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 3E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 3F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 40 */ {nullptr, nullptr, nullptr,  C_40,      C_40,      C_40,      C_40,      C_40,      C_40,      C_40,      C_40,      C_40,      C_40,      C_40},
+/* 41 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 42 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 43 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 44 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 45 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 46 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 47 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 48 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 49 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 4A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 4B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 4C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 4D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 4E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 4F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 50 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 51 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 52 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 53 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 54 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 55 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 56 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 57 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 58 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 59 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 5A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 5B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 5C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 5D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 5E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 5F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 60 */ {nullptr, nullptr, C_N_6x,   C_D_6x,    C_D_6x,    C_D_6x,    C_P_6x,    C_P_6x,    C_D_6x,    C_G_6x,    C_G_6x,    C_G_6x,    C_X_6x,    C_B_6x},
+/* 61 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   C_GXB_61,  C_GXB_61,  C_GXB_61,  C_GXB_61,  C_GXB_61},
+/* 62 */ {nullptr, nullptr, C_N_6x,   C_D_6x,    C_D_6x,    C_D_6x,    C_P_6x,    C_P_6x,    C_D_6x,    C_G_6x,    C_G_6x,    C_G_6x,    C_X_6x,    C_B_6x},
+/* 63 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 64 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 65 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 66 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 67 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 68 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 69 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 6A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 6B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 6C */ {nullptr, nullptr, C_N_6x,   C_D_6x,    C_D_6x,    C_D_6x,    C_P_6x,    C_P_6x,    C_D_6x,    C_G_6x,    C_G_6x,    C_G_6x,    C_X_6x,    C_B_6x},
+/* 6D */ {nullptr, nullptr, C_N_6x,   C_D_6x,    C_D_6x,    C_D_6x,    C_P_6x,    C_P_6x,    C_D_6x,    C_G_6x,    C_G_6x,    C_G_6x,    C_X_6x,    C_B_6x},
+/* 6E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 6F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 70 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 71 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 72 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 73 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 74 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 75 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 76 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 77 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 78 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 79 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 7A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 7B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 7C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 7D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 7E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 7F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 80 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 81 */ {nullptr, nullptr, C_DGX_81, C_DGX_81,  C_DGX_81,  C_DGX_81,  C_P_81,    C_P_81,    C_DGX_81,  C_DGX_81,  C_DGX_81,  C_DGX_81,  C_DGX_81,  C_B_81},
+/* 82 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 83 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 84 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 85 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 86 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 87 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 88 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 89 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 8A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 8B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 8C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 8D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 8E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 8F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* 90 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 91 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 92 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 93 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 94 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 95 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 96 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 97 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 98 */ {nullptr, nullptr, nullptr,  C_98,      C_98,      C_98,      C_98,      C_98,      C_98,      C_98,      C_98,      C_98,      C_98,      C_98},
+/* 99 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 9A */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 9B */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 9C */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 9D */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 9E */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* 9F */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* A0 */ {nullptr, nullptr, nullptr,  C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, C_V123_A0, nullptr},
+/* A1 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A2 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A3 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A4 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A5 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A6 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A7 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A8 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* A9 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* AA */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* AB */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* AC */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* AD */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* AE */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* AF */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* B0 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B1 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B2 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B3 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   C_B3,      C_B3,      C_B3,      C_B3,      C_B3,      C_B3,      C_B3,      C_B3,      C_B3},
+/* B4 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B5 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B6 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B7 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B8 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* B9 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   C_G_B9,    C_G_B9,    C_G_B9,    nullptr,   nullptr},
+/* BA */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* BB */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* BC */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* BD */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* BE */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* BF */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* C0 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C1 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C2 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C3 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C4 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C5 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C6 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C7 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C8 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* C9 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* CA */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* CB */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* CC */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* CD */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* CE */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* CF */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* D0 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D1 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D2 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D3 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D4 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D5 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D6 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D7 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D8 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* D9 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   C_GX_D9,   C_GX_D9,   C_GX_D9,   C_GX_D9,   C_B_D9},
+/* DA */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* DB */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* DC */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   C_B_DC},
+/* DD */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* DE */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* DF */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* E0 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   C_B_E0},
+/* E1 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E2 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E3 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E4 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E5 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E6 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E7 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E8 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* E9 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* EA */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* EB */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* EC */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* ED */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* EE */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* EF */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+/* F0 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F1 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F2 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F3 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F4 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F5 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F6 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F7 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F8 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* F9 */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* FA */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* FB */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* FC */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* FD */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* FE */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+/* FF */ {nullptr, nullptr, nullptr,  nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr,   nullptr},
+// CMD    PC_PATCH BB_PATCH DC_NTE    DC_11_2000 DC_V1      DC_V2      PC_NTE     PC_V2      GC_NTE     GC_V3      GC_EP3_NTE GC_EP3     XB_V3      BB_V4
+}};
+// clang-format on
 
-static on_message_t get_handler(Version version, bool from_server, uint8_t command) {
+static MessageHandler get_handler(Version version, bool from_server, uint8_t command) {
+  const auto& handlers = from_server ? server_handlers : client_handlers;
   size_t version_index = static_cast<size_t>(version);
-  if (version_index >= sizeof(handlers[0]) / sizeof(handlers[0][0])) {
-    throw logic_error("invalid game version on proxy server");
+  if (version_index >= handlers[command].size()) {
+    throw std::logic_error("invalid game version on proxy server");
   }
-  auto ret = handlers[command][version_index][!from_server];
+  auto ret = handlers[command][version_index];
   return ret ? ret : default_handler;
 }
 
-asio::awaitable<void> on_proxy_command(shared_ptr<Client> c, bool from_server, unique_ptr<Channel::Message> msg) {
-  auto fn = get_handler(c->version(), from_server, msg->command);
+asio::awaitable<void> on_proxy_command(
+    std::shared_ptr<Client> c, bool from_server, std::unique_ptr<Channel::Message> msg) {
+  auto fn = get_handler(c->version(), from_server, msg->command & 0xFF);
   try {
     auto res = co_await fn(c, *msg);
     if (res == HandlerResult::FORWARD) {
@@ -2441,9 +2802,9 @@ asio::awaitable<void> on_proxy_command(shared_ptr<Client> c, bool from_server, u
     } else if (res == HandlerResult::SUPPRESS) {
       c->log.info_f("The preceding command from the {} was not forwarded", from_server ? "server" : "client");
     } else {
-      throw logic_error("invalid handler result");
+      throw std::logic_error("invalid handler result");
     }
-  } catch (const exception& e) {
+  } catch (const std::exception& e) {
     c->log.error_f("Error in proxy command handler: {}", e.what());
     if (c->proxy_session && c->proxy_session->server_channel) {
       c->proxy_session->server_channel->disconnect();
@@ -2452,14 +2813,13 @@ asio::awaitable<void> on_proxy_command(shared_ptr<Client> c, bool from_server, u
 }
 
 asio::awaitable<void> handle_proxy_server_commands(
-    shared_ptr<Client> c, shared_ptr<ProxySession> ses, shared_ptr<Channel> channel) {
+    std::shared_ptr<Client> c, std::shared_ptr<ProxySession> ses, std::shared_ptr<Channel> channel) {
   std::string error_str;
-  // server_channel can be changed by receiving a 19 command, hence the
-  // exception handler is inside the loop here
+  // server_channel can be changed by receiving a 19 command, hence the exception handler is inside the loop here
   while ((c->proxy_session == ses) && (ses->server_channel == channel) && channel->connected()) {
-    unique_ptr<Channel::Message> msg;
+    std::unique_ptr<Channel::Message> msg;
     try {
-      msg = make_unique<Channel::Message>(co_await channel->recv());
+      msg = std::make_unique<Channel::Message>(co_await channel->recv());
       if (c->proxy_session == ses) {
         for (size_t z = 0; z < std::min<size_t>(c->proxy_session->prev_server_command_bytes.size(), msg->data.size()); z++) {
           c->proxy_session->prev_server_command_bytes[z] = msg->data[z];
@@ -2472,13 +2832,12 @@ asio::awaitable<void> handle_proxy_server_commands(
       if (ec == asio::error::eof || ec == asio::error::connection_reset) {
         error_str = "Server channel\ndisconnected";
       } else if (ec == asio::error::operation_aborted) {
-        // This happens when the player chooses Change Ship/Change Block, so we
-        // don't show an error message
+        // This happens when the player chooses Change Ship/Change Block, so we don't show an error message
       } else {
         error_str = e.what();
       }
       channel->disconnect();
-    } catch (const exception& e) {
+    } catch (const std::exception& e) {
       c->log.info_f("Error in proxy server channel handler (command {:04X}): {}", msg ? msg->command : 0, e.what());
       error_str = e.what();
       channel->disconnect();

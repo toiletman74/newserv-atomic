@@ -13,11 +13,8 @@
 #include "ShellCommands.hh"
 #include "StaticGameData.hh"
 
-using namespace std;
-
-ServerShell::ServerShell(shared_ptr<ServerState> state)
-    : state(state),
-      th(&ServerShell::thread_fn, this) {}
+ServerShell::ServerShell(std::shared_ptr<ServerState> state)
+    : state(state), th(&ServerShell::thread_fn, this) {}
 
 ServerShell::~ServerShell() {
   if (this->th.joinable()) {
@@ -29,15 +26,13 @@ void ServerShell::thread_fn() {
   for (;;) {
     phosg::fwrite_fmt(stdout, "newserv> ");
     fflush(stdout);
-    string command;
+    std::string command;
     uint64_t read_start_usecs = phosg::now();
     try {
       command = phosg::fgets(stdin);
     } catch (const phosg::io_error& e) {
-      // Cygwin sometimes causes fgets() to fail with errno -1 when the
-      // terminal window is resized. We ignore these events unless the read
-      // failed immediately (which probably means it would fail again if we
-      // retried immediately).
+      // Cygwin sometimes causes fgets() to fail with errno -1 when the terminal window is resized. We ignore these
+      // events unless the read failed immediately (which probably means it would fail again if we retried immediately)
       if (phosg::now() - read_start_usecs < 1000000 || e.error != -1) {
         throw;
       }
@@ -56,7 +51,7 @@ void ServerShell::thread_fn() {
     phosg::strip_leading_whitespace(command);
 
     try {
-      std::promise<deque<string>> promise;
+      std::promise<std::deque<std::string>> promise;
       auto future = promise.get_future();
 
       asio::co_spawn(
@@ -76,7 +71,7 @@ void ServerShell::thread_fn() {
     } catch (const exit_shell&) {
       this->state->io_context->stop();
       return;
-    } catch (const exception& e) {
+    } catch (const std::exception& e) {
       phosg::fwrite_fmt(stderr, "FAILED: {}\n", e.what());
     }
   }

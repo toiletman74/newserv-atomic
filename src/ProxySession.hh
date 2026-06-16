@@ -8,10 +8,12 @@
 #include <vector>
 
 #include "Channel.hh"
+#include "CommandFormats.hh"
 #include "ItemCreator.hh"
 #include "Map.hh"
+#include "SaveFileFormats.hh"
 
-struct ServerState;
+class ServerState;
 
 struct ProxySession {
   static size_t num_proxy_sessions;
@@ -55,10 +57,10 @@ struct ProxySession {
   std::shared_ptr<MapState> map_state;
   std::shared_ptr<const std::string> last_bin_contents;
   std::shared_ptr<const std::string> last_dat_contents;
-  // Note: We intentionally don't use the client's item ID space because the
-  // client may create items at the same time as the proxy, so server/client
-  // state could go out of sync
+  // Note: We intentionally don't use the client's item ID space because the client may create items at the same time
+  // as the proxy, so server/client state could go out of sync
   uint32_t next_item_id = 0x44000000;
+  ItemData next_drop_item;
 
   struct PersistentConfig {
     uint32_t account_id;
@@ -78,6 +80,10 @@ struct ProxySession {
     std::string data;
   };
   std::unordered_map<std::string, SavingFile> saving_files;
+  std::shared_ptr<PSOBBGuildCardFile> bb_guild_card_data; // Only used if save files is enabled
+  std::vector<S_StreamFileIndexEntry_BB_01EB> bb_stream_file_entries; // Only used if save files is enabled
+  std::string bb_stream_file_data; // Only used if save files is enabled
+  size_t bb_stream_file_data_received = 0;
 
   void set_drop_mode(std::shared_ptr<ServerState> s, Version version, int64_t override_random_seed, ProxyDropMode new_mode);
 

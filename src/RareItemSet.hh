@@ -22,6 +22,9 @@ public:
     uint32_t probability = 0;
     ItemData data;
 
+    bool operator==(const ExpandedDrop& other) const = default;
+    bool operator!=(const ExpandedDrop& other) const = default;
+
     std::string str() const;
     std::string str(std::shared_ptr<const ItemNameIndex> name_index) const;
   };
@@ -34,7 +37,7 @@ public:
   ~RareItemSet() = default;
 
   std::vector<ExpandedDrop> get_enemy_specs(
-      GameMode mode, Episode episode, Difficulty difficulty, uint8_t secid, uint8_t rt_index) const;
+      GameMode mode, Episode episode, Difficulty difficulty, uint8_t secid, EnemyType enemy_type) const;
   std::vector<ExpandedDrop> get_box_specs(
       GameMode mode, Episode episode, Difficulty difficulty, uint8_t secid, uint8_t area_norm) const;
 
@@ -60,11 +63,17 @@ public:
       uint8_t section_id,
       std::shared_ptr<const ItemNameIndex> name_index = nullptr) const;
   void print_all_collections(FILE* stream, std::shared_ptr<const ItemNameIndex> name_index = nullptr) const;
+  void print_diff(FILE* stream, const RareItemSet& other) const;
 
 protected:
   struct SpecCollection {
-    std::vector<std::vector<ExpandedDrop>> rt_index_to_specs;
-    std::vector<std::vector<ExpandedDrop>> box_area_norm_to_specs;
+    std::unordered_map<EnemyType, std::vector<ExpandedDrop>> enemy_specs;
+    std::vector<std::vector<ExpandedDrop>> box_specs; // Indexed by area_norm
+
+    bool operator==(const SpecCollection& other) const = default;
+    bool operator!=(const SpecCollection& other) const = default;
+
+    void print_diff(FILE* stream, const SpecCollection& other) const;
   };
 
   struct ParsedRELData {
@@ -78,25 +87,23 @@ protected:
     } __packed_ws__(PackedDrop, 4);
 
     template <bool BE>
-    struct OffsetsT {
+    struct RootT {
       /* 00 */ U32T<BE> monster_rares_offset; // -> parray<PackedDrop, 0x65> (or 0x33 on v1)
       /* 04 */ U32T<BE> box_count; // Usually 30 (0x1E)
       /* 08 */ U32T<BE> box_areas_offset; // -> parray<uint8_t, 0x1E>
       /* 0C */ U32T<BE> box_rares_offset; // -> parray<PackedDrop, 0x1E>
       /* 10 */
-    } __attribute__((packed));
-    using Offsets = OffsetsT<false>;
-    using OffsetsBE = OffsetsT<true>;
-    check_struct_size(Offsets, 0x10);
-    check_struct_size(OffsetsBE, 0x10);
+    } __packed_ws_be__(RootT, 0x10);
+    using Root = RootT<false>;
+    using RootBE = RootT<true>;
 
     struct BoxRare {
       uint8_t area_norm_plus_1;
       ExpandedDrop drop;
     };
 
-    std::vector<ExpandedDrop> monster_rares;
-    std::vector<BoxRare> box_rares;
+    std::vector<ExpandedDrop> monster_rares; // Indexed by rt_index
+    std::vector<BoxRare> box_rares; // Not indexed (area_norm + 1 is in the struct)
 
     ParsedRELData() = default;
     ParsedRELData(phosg::StringReader r, bool big_endian, bool is_v1);
@@ -108,7 +115,7 @@ protected:
     template <bool BE>
     std::string serialize_t(bool is_v1) const;
 
-    SpecCollection as_collection() const;
+    SpecCollection as_collection(Episode episode) const;
   };
 
   std::unordered_map<uint16_t, SpecCollection> collections;

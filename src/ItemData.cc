@@ -6,14 +6,10 @@
 #include "ItemParameterTable.hh"
 #include "StaticGameData.hh"
 
-using namespace std;
-
-const vector<uint8_t> ItemData::StackLimits::DEFAULT_TOOL_LIMITS_DC_NTE(
-    {10});
-const vector<uint8_t> ItemData::StackLimits::DEFAULT_TOOL_LIMITS_V1_V2(
-    {10, 10, 1, 10, 10, 10, 10, 10, 10, 1});
-const vector<uint8_t> ItemData::StackLimits::DEFAULT_TOOL_LIMITS_V3_V4(
-    {10, 10, 1, 10, 10, 10, 10, 10, 10, 1, 1, 1, 1, 1, 1, 1, 99, 1});
+const std::vector<uint8_t> ItemData::StackLimits::DEFAULT_TOOL_LIMITS_DC_NTE{10};
+const std::vector<uint8_t> ItemData::StackLimits::DEFAULT_TOOL_LIMITS_V1_V2{10, 10, 1, 10, 10, 10, 10, 10, 10, 1};
+const std::vector<uint8_t> ItemData::StackLimits::DEFAULT_TOOL_LIMITS_V3_V4{
+    10, 10, 1, 10, 10, 10, 10, 10, 10, 1, 1, 1, 1, 1, 1, 1, 99, 1};
 
 const ItemData::StackLimits ItemData::StackLimits::DEFAULT_STACK_LIMITS_DC_NTE(
     Version::DC_NTE, ItemData::StackLimits::DEFAULT_TOOL_LIMITS_DC_NTE, 999999);
@@ -23,13 +19,12 @@ const ItemData::StackLimits ItemData::StackLimits::DEFAULT_STACK_LIMITS_V3_V4(
     Version::GC_V3, ItemData::StackLimits::DEFAULT_TOOL_LIMITS_V3_V4, 999999);
 
 ItemData::StackLimits::StackLimits(
-    Version version, const vector<uint8_t>& max_tool_stack_sizes_by_data1_1, uint32_t max_meseta_stack_size)
+    Version version, const std::vector<uint8_t>& max_tool_stack_sizes_by_data1_1, uint32_t max_meseta_stack_size)
     : version(version),
       max_tool_stack_sizes_by_data1_1(max_tool_stack_sizes_by_data1_1),
       max_meseta_stack_size(max_meseta_stack_size) {}
 
-ItemData::StackLimits::StackLimits(Version version, const phosg::JSON& json)
-    : version(version) {
+ItemData::StackLimits::StackLimits(Version version, const phosg::JSON& json) : version(version) {
   this->max_tool_stack_sizes_by_data1_1.clear();
   for (const auto& limit_json : json.at("ToolLimits").as_list()) {
     this->max_tool_stack_sizes_by_data1_1.emplace_back(limit_json->as_int());
@@ -43,7 +38,7 @@ uint8_t ItemData::StackLimits::get(uint8_t data1_0, uint8_t data1_1) const {
   }
   if (data1_0 == 3) {
     const auto& vec = this->max_tool_stack_sizes_by_data1_1;
-    return vec.at(min<size_t>(data1_1, vec.size() - 1));
+    return vec.at(std::min<size_t>(data1_1, vec.size() - 1));
   }
   return 1;
 }
@@ -116,8 +111,7 @@ uint32_t ItemData::primary_identifier() const {
   // - 03TTSS00 = tool
   // - 04000000 = meseta
 
-  // The game treats any item starting with 04 as Meseta, and ignores the rest
-  // of data1 (the value is in data2)
+  // The game treats any item starting with 04 as Meseta, and ignores the rest of data1 (the value is in data2)
   if (this->data1[0] == 0x04) {
     return 0x04000000;
   }
@@ -150,17 +144,14 @@ void ItemData::change_primary_identifier(uint32_t primary_identifier) {
       }
       break;
     }
-    case 0x01: // Armor/shield/unit
-      // Apply data1[1] and data1[2]
+    case 0x01: // Armor/shield/unit; apply data1[1] and data1[2]
       this->data1[1] = (primary_identifier >> 16) & 0xFF;
       this->data1[2] = (primary_identifier >> 8) & 0xFF;
       break;
-    case 0x02: // Mag
-      // Apply data1[1] only
+    case 0x02: // Mag; apply data1[1] only
       this->data1[1] = (primary_identifier >> 16) & 0xFF;
       break;
-    case 0x03: // Tool
-      // Apply data1[1] and data1[2] (or data1[4] if it's a tech disk)
+    case 0x03: // Tool; apply data1[1] and data1[2] (or data1[4] if it's a tech disk)
       this->data1[1] = (primary_identifier >> 16) & 0xFF;
       if (this->data1[1] == 0x02) {
         this->data1[4] = (primary_identifier >> 8) & 0xFF;
@@ -169,8 +160,7 @@ void ItemData::change_primary_identifier(uint32_t primary_identifier) {
         this->data1[2] = (primary_identifier >> 8) & 0xFF;
       }
       break;
-    case 0x04: // Meseta
-      // Nothing to apply
+    case 0x04: // Meseta; nothing to apply
       break;
     default:
       throw std::runtime_error("invalid item class");
@@ -189,7 +179,7 @@ bool ItemData::is_wrapped(const StackLimits& limits) const {
     case 4:
       return false;
     default:
-      throw runtime_error("invalid item data");
+      throw std::runtime_error("invalid item data");
   }
 }
 
@@ -214,7 +204,7 @@ void ItemData::wrap(const StackLimits& limits, uint8_t present_color) {
     case 4:
       break;
     default:
-      throw runtime_error("invalid item data");
+      throw std::runtime_error("invalid item data");
   }
 }
 
@@ -235,7 +225,7 @@ void ItemData::unwrap(const StackLimits& limits) {
     case 4:
       break;
     default:
-      throw runtime_error("invalid item data");
+      throw std::runtime_error("invalid item data");
   }
 }
 
@@ -298,10 +288,7 @@ void ItemData::clear_mag_stats() {
 }
 
 uint16_t ItemData::compute_mag_level() const {
-  return (this->data1w[2] / 100) +
-      (this->data1w[3] / 100) +
-      (this->data1w[4] / 100) +
-      (this->data1w[5] / 100);
+  return (this->data1w[2] / 100) + (this->data1w[3] / 100) + (this->data1w[4] / 100) + (this->data1w[5] / 100);
 }
 
 uint16_t ItemData::compute_mag_strength_flags() const {
@@ -320,7 +307,7 @@ uint16_t ItemData::compute_mag_strength_flags() const {
     ret |= 0x020;
   }
 
-  uint16_t highest = max<uint16_t>(dex, max<uint16_t>(pow, mind));
+  uint16_t highest = std::max<uint16_t>(dex, std::max<uint16_t>(pow, mind));
   if ((pow == highest) + (dex == highest) + (mind == highest) > 1) {
     ret |= 0x100;
   }
@@ -354,10 +341,10 @@ uint8_t ItemData::mag_photon_blast_for_slot(uint8_t slot) const {
         left_pb_num--;
       }
     }
-    throw logic_error("failed to find unused photon blast number");
+    throw std::logic_error("failed to find unused photon blast number");
 
   } else {
-    throw logic_error("invalid slot index");
+    throw std::logic_error("invalid slot index");
   }
 }
 
@@ -398,7 +385,7 @@ void ItemData::add_mag_photon_blast(uint8_t pb_num) {
       pb_num--;
     }
     if (pb_num >= 4) {
-      throw runtime_error("left photon blast number is too high");
+      throw std::runtime_error("left photon blast number is too high");
     }
     pb_nums |= (pb_num << 6);
     flags |= 4;
@@ -432,8 +419,7 @@ void ItemData::decode_for_version(Version from_version) {
       }
 
       if (is_v1(from_version) || is_v2(from_version)) {
-        // PSO PC and GC NTE encode mags in a tediously annoying manner. The
-        // first four bytes are the same, but then...
+        // PSO PC and GC NTE encode mags in a tediously annoying manner. The first four bytes are the same, but then:
         // V2: pHHHHHHHHHHHHHHc pIIIIIIIIIIIIIIc JJJJJJJJJJJJJJJc KKKKKKKKKKKKKKKc QQQQQQQQ QQQQQQQQ YYYYYYYY pYYYYYYY
         // V3: HHHHHHHHHHHHHHHH IIIIIIIIIIIIIIII JJJJJJJJJJJJJJJJ KKKKKKKKKKKKKKKK YYYYYYYY QQQQQQQQ PPPPPPPP CCCCCCCC
         // c = color in V2 (4 bits; low bit first)
@@ -455,10 +441,8 @@ void ItemData::decode_for_version(Version from_version) {
         this->data1w[5] &= 0xFFFE;
 
       } else if (is_big_endian(from_version)) {
-        // PSO GC (but not GC NTE, which uses the above logic) byteswaps the
-        // data2d field, since internally it's actually a uint32_t. We treat it
-        // as individual bytes instead, so we correct for the client's
-        // byteswapping here.
+        // PSO GC (but not GC NTE, which uses the above logic) byteswaps the data2d field, since internally it's
+        // actually a uint32_t. We treat it as individual bytes, so we correct for the client's byteswapping here.
         this->data2d = phosg::bswap32(this->data2d);
       }
       break;
@@ -485,11 +469,11 @@ void ItemData::decode_for_version(Version from_version) {
       break;
 
     default:
-      throw runtime_error("invalid item class");
+      throw std::runtime_error("invalid item class");
   }
 }
 
-void ItemData::encode_for_version(Version to_version, shared_ptr<const ItemParameterTable> item_parameter_table) {
+void ItemData::encode_for_version(Version to_version, std::shared_ptr<const ItemParameterTable> item_parameter_table) {
   bool should_encode_v2_data = item_parameter_table &&
       (is_v1(to_version) || is_v2(to_version)) &&
       (to_version != Version::GC_NTE) &&
@@ -500,7 +484,7 @@ void ItemData::encode_for_version(Version to_version, shared_ptr<const ItemParam
       if (should_encode_v2_data && (this->data1[1] > 0x26)) {
         if (this->data1[1] < 0x89) {
           this->data1[5] = this->data1[1];
-          this->data1[1] = item_parameter_table->get_weapon_v1_replacement(this->data1[1]);
+          this->data1[1] = item_parameter_table->get_weapon_kind(this->data1[1]);
           if (this->data1[1] == 0x00) {
             this->data1[1] = 0x0F;
           }
@@ -515,7 +499,7 @@ void ItemData::encode_for_version(Version to_version, shared_ptr<const ItemParam
       break;
 
     case 0x01: {
-      static const array<uint8_t, 4> armor_limits = {0x00, 0x29, 0x27, 0x44};
+      static const std::array<uint8_t, 4> armor_limits = {0x00, 0x29, 0x27, 0x44};
       if (should_encode_v2_data && (this->data1[2] >= armor_limits[this->data1[1]])) {
         this->data1[3] = this->data1[2];
         this->data1[2] = 0x00;
@@ -529,9 +513,8 @@ void ItemData::encode_for_version(Version to_version, shared_ptr<const ItemParam
         this->data1[1] = 0x00;
       }
 
-      // This logic is the inverse of the corresponding logic in
-      // decode_for_version; see that function for a description of what's
-      // going on here.
+      // This logic is the inverse of the corresponding logic in decode_for_version; see that function for a
+      // description of what's going on here.
       if (is_v1(to_version) || is_v2(to_version)) {
         this->data1w[2] = (this->data1w[2] & 0x7FFE) | ((this->data2[2] << 14) & 0x8000) | (this->data2[3] & 1);
         this->data1w[3] = (this->data1w[3] & 0x7FFE) | ((this->data2[2] << 13) & 0x8000) | ((this->data2[3] >> 1) & 1);
@@ -569,7 +552,7 @@ void ItemData::encode_for_version(Version to_version, shared_ptr<const ItemParam
       break;
 
     default:
-      throw runtime_error("invalid item class");
+      throw std::runtime_error("invalid item class");
   }
 }
 
@@ -673,7 +656,7 @@ bool ItemData::has_bonuses() const {
         case 3:
           return (this->get_unit_bonus() > 0);
         default:
-          throw runtime_error("invalid item");
+          throw std::runtime_error("invalid item");
       }
     case 2:
       if (this->data1[1] < 0x23) {
@@ -685,7 +668,7 @@ bool ItemData::has_bonuses() const {
     case 4:
       return false;
     default:
-      throw runtime_error("invalid item");
+      throw std::runtime_error("invalid item");
   }
 }
 
@@ -718,7 +701,7 @@ EquipSlot ItemData::default_equip_slot() const {
     case 0x02:
       return EquipSlot::MAG;
   }
-  throw runtime_error("item cannot be equipped");
+  throw std::runtime_error("item cannot be equipped");
 }
 
 bool ItemData::can_be_equipped_in_slot(EquipSlot slot) const {
@@ -737,7 +720,7 @@ bool ItemData::can_be_equipped_in_slot(EquipSlot slot) const {
     case EquipSlot::WEAPON:
       return (this->data1[0] == 0x00);
     default:
-      throw runtime_error("invalid equip slot");
+      throw std::runtime_error("invalid equip slot");
   }
 }
 
@@ -763,23 +746,23 @@ bool ItemData::compare_for_sort(const ItemData& a, const ItemData& b) {
   return false;
 }
 
-ItemData ItemData::from_data(const string& data) {
+ItemData ItemData::from_data(const std::string& data) {
   if (data.size() < 2) {
-    throw runtime_error("data is too short");
+    throw std::runtime_error("data is too short");
   }
   if (data.size() > 0x10) {
-    throw runtime_error("data is too long");
+    throw std::runtime_error("data is too long");
   }
 
   ItemData ret;
-  for (size_t z = 0; z < min<size_t>(data.size(), 12); z++) {
+  for (size_t z = 0; z < std::min<size_t>(data.size(), 12); z++) {
     ret.data1[z] = data[z];
   }
-  for (size_t z = 12; z < min<size_t>(data.size(), 16); z++) {
+  for (size_t z = 12; z < std::min<size_t>(data.size(), 16); z++) {
     ret.data2[z - 12] = data[z];
   }
   if (ret.data1[0] > 4) {
-    throw runtime_error("invalid item class");
+    throw std::runtime_error("invalid item class");
   }
   return ret;
 }
@@ -787,7 +770,7 @@ ItemData ItemData::from_data(const string& data) {
 ItemData ItemData::from_primary_identifier(const StackLimits& limits, uint32_t primary_identifier) {
   ItemData ret;
   if (primary_identifier > 0x04000000) {
-    throw runtime_error("invalid item class");
+    throw std::runtime_error("invalid item class");
   }
   ret.data1[0] = (primary_identifier >> 24) & 0xFF;
   ret.data1[1] = (primary_identifier >> 16) & 0xFF;
@@ -801,16 +784,16 @@ ItemData ItemData::from_primary_identifier(const StackLimits& limits, uint32_t p
   return ret;
 }
 
-string ItemData::hex() const {
+std::string ItemData::hex() const {
   return std::format("{:08X} {:08X} {:08X} ({:08X}) {:08X}",
       this->data1db[0], this->data1db[1], this->data1db[2], this->id, this->data2db);
 }
 
-string ItemData::short_hex() const {
+std::string ItemData::short_hex() const {
   auto ret = std::format("{:08X}{:08X}{:08X}{:08X}",
       this->data1db[0], this->data1db[1], this->data1db[2], this->data2db);
   size_t offset = ret.find_last_not_of('0');
-  if (offset != string::npos) {
+  if (offset != std::string::npos) {
     offset += (offset & 1) ? 1 : 2;
     offset = std::max<size_t>(offset, 6);
     if (offset < ret.size()) {

@@ -17,18 +17,16 @@
 #include <phosg/Strings.hh>
 #include <stdexcept>
 
-using namespace std;
-
-map<string, uint32_t> get_local_addresses() {
-  map<string, uint32_t> ret;
+std::map<std::string, uint32_t> get_local_addresses() {
+  std::map<std::string, uint32_t> ret;
 
 #ifndef PHOSG_WINDOWS
   struct ifaddrs* ifa_raw;
   if (getifaddrs(&ifa_raw)) {
     auto s = phosg::string_for_error(errno);
-    throw runtime_error(std::format("failed to get interface addresses: {}", s));
+    throw std::runtime_error(std::format("failed to get interface addresses: {}", s));
   }
-  unique_ptr<struct ifaddrs, void (*)(struct ifaddrs*)> ifa(ifa_raw, freeifaddrs);
+  std::unique_ptr<struct ifaddrs, void (*)(struct ifaddrs*)> ifa(ifa_raw, freeifaddrs);
 
   for (struct ifaddrs* i = ifa.get(); i; i = i->ifa_next) {
     if (!i->ifa_addr) {
@@ -56,7 +54,7 @@ map<string, uint32_t> get_local_addresses() {
   }
 
   if (result != NO_ERROR) {
-    throw runtime_error(std::format("GetAdaptersAddresses failed: {}", result));
+    throw std::runtime_error(std::format("GetAdaptersAddresses failed: {}", result));
   }
 
   for (IP_ADAPTER_ADDRESSES* adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
@@ -92,7 +90,7 @@ bool is_local_address(const sockaddr_storage& daddr) {
   return is_local_address(ntohl(sin->sin_addr.s_addr));
 }
 
-string string_for_address(uint32_t address) {
+std::string string_for_address(uint32_t address) {
   return std::format("{}.{}.{}.{}",
       static_cast<uint8_t>(address >> 24), static_cast<uint8_t>(address >> 16),
       static_cast<uint8_t>(address >> 8), static_cast<uint8_t>(address));
@@ -103,8 +101,7 @@ uint32_t address_for_string(const char* address) {
 }
 
 uint64_t devolution_phone_number_for_netloc(uint32_t addr, uint16_t port) {
-  // It seems the address part of the number is fixed-width, but the port is
-  // not. Why did they do it this way?
+  // It seems the address part of the number is fixed-width, but the port is not. Why did they do it this way?
   if (port & 0xF000) {
     return (static_cast<uint64_t>(addr) << 16) | port;
   } else if (port & 0x0F00) {

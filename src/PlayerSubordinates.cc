@@ -20,28 +20,26 @@
 #include "Text.hh"
 #include "Version.hh"
 
-using namespace std;
-
-void PlayerDispDataBB::apply_dressing_room(const PlayerDispDataBBPreview& pre) {
-  this->visual.name_color = pre.visual.name_color;
-  this->visual.extra_model = pre.visual.extra_model;
-  this->visual.name_color_checksum = pre.visual.name_color_checksum;
-  this->visual.section_id = pre.visual.section_id;
-  this->visual.char_class = pre.visual.char_class;
-  this->visual.validation_flags = pre.visual.validation_flags;
-  this->visual.version = pre.visual.version;
-  this->visual.class_flags = pre.visual.class_flags;
-  this->visual.costume = pre.visual.costume;
-  this->visual.skin = pre.visual.skin;
-  this->visual.face = pre.visual.face;
-  this->visual.head = pre.visual.head;
-  this->visual.hair = pre.visual.hair;
-  this->visual.hair_r = pre.visual.hair_r;
-  this->visual.hair_g = pre.visual.hair_g;
-  this->visual.hair_b = pre.visual.hair_b;
-  this->visual.proportion_x = pre.visual.proportion_x;
-  this->visual.proportion_y = pre.visual.proportion_y;
-  this->name = pre.name;
+void PlayerVisualConfigV4::apply_dressing_room(const PlayerVisualConfigV4& new_visual) {
+  this->sh.name_color = new_visual.sh.name_color;
+  this->sh.extra_model = new_visual.sh.extra_model;
+  this->sh.name_color_checksum = new_visual.sh.name_color_checksum;
+  this->sh.section_id = new_visual.sh.section_id;
+  this->sh.char_class = new_visual.sh.char_class;
+  this->sh.validation_flags = new_visual.sh.validation_flags;
+  this->sh.version = new_visual.sh.version;
+  this->sh.class_flags = new_visual.sh.class_flags;
+  this->sh.costume = new_visual.sh.costume;
+  this->sh.skin = new_visual.sh.skin;
+  this->sh.face = new_visual.sh.face;
+  this->sh.head = new_visual.sh.head;
+  this->sh.hair = new_visual.sh.hair;
+  this->sh.hair_r = new_visual.sh.hair_r;
+  this->sh.hair_g = new_visual.sh.hair_g;
+  this->sh.hair_b = new_visual.sh.hair_b;
+  this->sh.proportion_x = new_visual.sh.proportion_x;
+  this->sh.proportion_y = new_visual.sh.proportion_y;
+  this->name = new_visual.name;
 }
 
 void GuildCardBB::clear() {
@@ -330,27 +328,19 @@ const QuestFlagsForDifficulty BB_QUEST_FLAG_APPLY_MASK{{
     // clang-format on
 
     // The flags in the above mask are:
-    // 000A 000B 000C 000D 000E 000F 0010 0011 0012 0013 0014 0015 0016 0017
-    // 0018 0019 001A 001E 001F 0020 0021 0022 0028 0029 002A 002B 002C 002D
-    // 002E 002F 0030 0031 0032 0033 0034 0035 0036 0037 0046 0047 0048 0049
-    // 004A 004B 004C 004D 004E 004F 0050 0051 0052 0053 0054 0055 0056 0057
-    // 0058 0059 005A 005B 005C 005D 005E 005F 0060 0061 0062 0063 0097 0098
-    // 0099 009A 012D 012E 012F 0130 0131 0132 0133 0134 0135 0140 0141 0142
-    // 0143 0144 0145 0146 0147 0148 0149 014A 014B 014C 014D 014E 014F 0150
-    // 0151 0152 0153 0154 0155 0156 0157 0158 0159 015A 015B 015C 015D 015E
-    // 015F 0160 0161 0162 0163 0164 0165 0166 0167 0168 0169 016A 016B 016C
-    // 016D 016E 016F 0170 0171 0172 0173 0174 0175 0176 0177 0178 0179 017A
-    // 017B 017C 017D 017E 017F 0180 0181 0182 0183 0184 0185 0186 0191 0192
-    // 0193 0194 0195 0196 0197 0198 0199 019A 019B 019C 019D 019E 01A4 01A5
-    // 01A6 01A7 01A8 01A9 01AA 01AB 01AC 01AD 01AE 01AF 01B0 01B1 01B2 01B3
-    // 01B4 01B5 01B6 01B7 01B8 01C2 01C3 01C4 01C5 01C6 01C7 01C8 01C9 01CA
-    // 01CB 01CC 01CD 01CE 01CF 01D0 01D1 01D2 01D3 01D4 01D5 01D6 01F4 01F5
-    // 01F6 01F7 01F8 01F9 01FA 01FB 01FC 01FD 01FE 01FF 0200 0201 0202 0203
-    // 0204 0205 0206 0207 0208 0209 020A 020B 020C 020D 020E 020F 0210 0211
-    // 0212 0213 0214 0215 0216 0217 0218 0219 021A 021B 021C 021D 021E 021F
-    // 0220 0221 0222 0223 0224 0225 0226 0227 0228 0229 022A 022B 022C 022D
-    // 022E 022F 0230 0231 0232 0233 0234 0235 02BD 02BE 02BF 02C0 02C1 02C2
-    // 02C3 02C4
+    // 000A 000B 000C 000D 000E 000F 0010 0011 0012 0013 0014 0015 0016 0017 0018 0019 001A 001E 001F 0020 0021 0022
+    // 0028 0029 002A 002B 002C 002D 002E 002F 0030 0031 0032 0033 0034 0035 0036 0037 0046 0047 0048 0049 004A 004B
+    // 004C 004D 004E 004F 0050 0051 0052 0053 0054 0055 0056 0057 0058 0059 005A 005B 005C 005D 005E 005F 0060 0061
+    // 0062 0063 0097 0098 0099 009A 012D 012E 012F 0130 0131 0132 0133 0134 0135 0140 0141 0142 0143 0144 0145 0146
+    // 0147 0148 0149 014A 014B 014C 014D 014E 014F 0150 0151 0152 0153 0154 0155 0156 0157 0158 0159 015A 015B 015C
+    // 015D 015E 015F 0160 0161 0162 0163 0164 0165 0166 0167 0168 0169 016A 016B 016C 016D 016E 016F 0170 0171 0172
+    // 0173 0174 0175 0176 0177 0178 0179 017A 017B 017C 017D 017E 017F 0180 0181 0182 0183 0184 0185 0186 0191 0192
+    // 0193 0194 0195 0196 0197 0198 0199 019A 019B 019C 019D 019E 01A4 01A5 01A6 01A7 01A8 01A9 01AA 01AB 01AC 01AD
+    // 01AE 01AF 01B0 01B1 01B2 01B3 01B4 01B5 01B6 01B7 01B8 01C2 01C3 01C4 01C5 01C6 01C7 01C8 01C9 01CA 01CB 01CC
+    // 01CD 01CE 01CF 01D0 01D1 01D2 01D3 01D4 01D5 01D6 01F4 01F5 01F6 01F7 01F8 01F9 01FA 01FB 01FC 01FD 01FE 01FF
+    // 0200 0201 0202 0203 0204 0205 0206 0207 0208 0209 020A 020B 020C 020D 020E 020F 0210 0211 0212 0213 0214 0215
+    // 0216 0217 0218 0219 021A 021B 021C 021D 021E 021F 0220 0221 0222 0223 0224 0225 0226 0227 0228 0229 022A 022B
+    // 022C 022D 022E 022F 0230 0231 0232 0233 0234 0235 02BD 02BE 02BF 02C0 02C1 02C2 02C3 02C4
 }};
 
 BattleRules::BattleRules(const phosg::JSON& json) {
@@ -422,7 +412,7 @@ const char* phosg::name_for_enum<BattleRules::TechDiskMode>(BattleRules::TechDis
     case BattleRules::TechDiskMode::LIMIT_LEVEL:
       return "LIMIT_LEVEL";
     default:
-      throw invalid_argument("invalid BattleRules::TechDiskMode value");
+      throw std::invalid_argument("invalid BattleRules::TechDiskMode value");
   }
 }
 template <>
@@ -434,7 +424,7 @@ BattleRules::TechDiskMode phosg::enum_for_name<BattleRules::TechDiskMode>(const 
   } else if (!strcmp(name, "LIMIT_LEVEL")) {
     return BattleRules::TechDiskMode::LIMIT_LEVEL;
   } else {
-    throw invalid_argument("invalid BattleRules::TechDiskMode name");
+    throw std::invalid_argument("invalid BattleRules::TechDiskMode name");
   }
 }
 
@@ -450,7 +440,7 @@ const char* phosg::name_for_enum<BattleRules::WeaponAndArmorMode>(BattleRules::W
     case BattleRules::WeaponAndArmorMode::FORBID_RARES:
       return "FORBID_RARES";
     default:
-      throw invalid_argument("invalid BattleRules::WeaponAndArmorMode value");
+      throw std::invalid_argument("invalid BattleRules::WeaponAndArmorMode value");
   }
 }
 template <>
@@ -464,7 +454,7 @@ BattleRules::WeaponAndArmorMode phosg::enum_for_name<BattleRules::WeaponAndArmor
   } else if (!strcmp(name, "FORBID_RARES")) {
     return BattleRules::WeaponAndArmorMode::FORBID_RARES;
   } else {
-    throw invalid_argument("invalid BattleRules::WeaponAndArmorMode name");
+    throw std::invalid_argument("invalid BattleRules::WeaponAndArmorMode name");
   }
 }
 
@@ -476,7 +466,7 @@ const char* phosg::name_for_enum<BattleRules::MagMode>(BattleRules::MagMode v) {
     case BattleRules::MagMode::FORBID_ALL:
       return "FORBID_ALL";
     default:
-      throw invalid_argument("invalid BattleRules::MagMode value");
+      throw std::invalid_argument("invalid BattleRules::MagMode value");
   }
 }
 template <>
@@ -486,7 +476,7 @@ BattleRules::MagMode phosg::enum_for_name<BattleRules::MagMode>(const char* name
   } else if (!strcmp(name, "FORBID_ALL")) {
     return BattleRules::MagMode::FORBID_ALL;
   } else {
-    throw invalid_argument("invalid BattleRules::MagMode name");
+    throw std::invalid_argument("invalid BattleRules::MagMode name");
   }
 }
 
@@ -500,7 +490,7 @@ const char* phosg::name_for_enum<BattleRules::ToolMode>(BattleRules::ToolMode v)
     case BattleRules::ToolMode::FORBID_ALL:
       return "FORBID_ALL";
     default:
-      throw invalid_argument("invalid BattleRules::ToolMode value");
+      throw std::invalid_argument("invalid BattleRules::ToolMode value");
   }
 }
 template <>
@@ -512,7 +502,7 @@ BattleRules::ToolMode phosg::enum_for_name<BattleRules::ToolMode>(const char* na
   } else if (!strcmp(name, "FORBID_ALL")) {
     return BattleRules::ToolMode::FORBID_ALL;
   } else {
-    throw invalid_argument("invalid BattleRules::ToolMode name");
+    throw std::invalid_argument("invalid BattleRules::ToolMode name");
   }
 }
 
@@ -524,7 +514,7 @@ const char* phosg::name_for_enum<BattleRules::TrapMode>(BattleRules::TrapMode v)
     case BattleRules::TrapMode::ALL_PLAYERS:
       return "ALL_PLAYERS";
     default:
-      throw invalid_argument("invalid BattleRules::TrapMode value");
+      throw std::invalid_argument("invalid BattleRules::TrapMode value");
   }
 }
 template <>
@@ -534,7 +524,7 @@ BattleRules::TrapMode phosg::enum_for_name<BattleRules::TrapMode>(const char* na
   } else if (!strcmp(name, "ALL_PLAYERS")) {
     return BattleRules::TrapMode::ALL_PLAYERS;
   } else {
-    throw invalid_argument("invalid BattleRules::TrapMode name");
+    throw std::invalid_argument("invalid BattleRules::TrapMode name");
   }
 }
 
@@ -548,7 +538,7 @@ const char* phosg::name_for_enum<BattleRules::MesetaMode>(BattleRules::MesetaMod
     case BattleRules::MesetaMode::CLEAR_AND_ALLOW:
       return "CLEAR_AND_ALLOW";
     default:
-      throw invalid_argument("invalid BattleRules::MesetaDropMode value");
+      throw std::invalid_argument("invalid BattleRules::MesetaDropMode value");
   }
 }
 template <>
@@ -560,7 +550,7 @@ BattleRules::MesetaMode phosg::enum_for_name<BattleRules::MesetaMode>(const char
   } else if (!strcmp(name, "CLEAR_AND_ALLOW")) {
     return BattleRules::MesetaMode::CLEAR_AND_ALLOW;
   } else {
-    throw invalid_argument("invalid BattleRules::MesetaDropMode name");
+    throw std::invalid_argument("invalid BattleRules::MesetaDropMode name");
   }
 }
 
@@ -574,7 +564,7 @@ const char* phosg::name_for_enum<BattleRules::RespawnMode>(BattleRules::RespawnM
     case BattleRules::RespawnMode::LIMIT_LIVES:
       return "LIMIT_LIVES";
     default:
-      throw invalid_argument("invalid BattleRules::MesetaDropMode value");
+      throw std::invalid_argument("invalid BattleRules::MesetaDropMode value");
   }
 }
 template <>
@@ -586,7 +576,7 @@ BattleRules::RespawnMode phosg::enum_for_name<BattleRules::RespawnMode>(const ch
   } else if (!strcmp(name, "LIMIT_LIVES")) {
     return BattleRules::RespawnMode::LIMIT_LIVES;
   } else {
-    throw invalid_argument("invalid BattleRules::MesetaDropMode name");
+    throw std::invalid_argument("invalid BattleRules::MesetaDropMode name");
   }
 }
 
@@ -606,7 +596,7 @@ static PlayerInventoryItem v3_item(bool equipped, uint64_t first_data, uint64_t 
 
 const ChallengeTemplateDefinition& get_challenge_template_definition(Version version, uint32_t class_flags, size_t index) {
   // clang-format off
-  static const vector<ChallengeTemplateDefinition> v2_hunter_templates({
+  static const std::vector<ChallengeTemplateDefinition> v2_hunter_templates({
       {0,  {v2_item(true, 0x0001000000000000, 0x0000000000000000), v2_item(true,  0x0101000000000000, 0x0000000000000000), v2_item(true,  0x02000500F4010100, 0x0100010000002800), v2_item(false, 0x0300000000030000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {4,  {v2_item(true, 0x0001000500000000, 0x0000000000000000), v2_item(true,  0x0101010000000000, 0x0000000000000000), v2_item(true,  0x0102000000000000, 0x0000000000000000), v2_item(true,  0x02010D002003F501, 0x0100010000002800), v2_item(false, 0x0300000000060000, 0x0000000000000000), v2_item(false, 0x0306010000030000, 0x0000000000000000), v2_item(false, 0x0306000000030000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {6,  {v2_item(true, 0x0002000000000000, 0x0000000000000000), v2_item(true,  0x0101020000000000, 0x0000000000000000), v2_item(true,  0x0102010000000000, 0x0000000000000000), v2_item(true,  0x0201100020032103, 0x0100010000002800), v2_item(false, 0x0300000000060000, 0x0000000000000000), v2_item(false, 0x0306010000030000, 0x0000000000000000), v2_item(false, 0x0306000000030000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
@@ -624,7 +614,7 @@ const ChallengeTemplateDefinition& get_challenge_template_definition(Version ver
       {50, {v2_item(true, 0x02058200A00F8913, 0xD107D10700002800), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {99, {v2_item(true, 0x0205BE007017591B, 0xB90BB90B00002800), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
   });
-  static const vector<ChallengeTemplateDefinition> v2_ranger_templates({
+  static const std::vector<ChallengeTemplateDefinition> v2_ranger_templates({
       {0,  {v2_item(true, 0x0006000000000000, 0x0000000000000000), v2_item(true,  0x0101000000000000, 0x0000000000000000), v2_item(true,  0x02000500F4010100, 0x0100010000002800), v2_item(false, 0x0300000000030000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {4,  {v2_item(true, 0x0006000500000000, 0x0000000000000000), v2_item(true,  0x0101010000000000, 0x0000000000000000), v2_item(true,  0x0102000000000000, 0x0000000000000000), v2_item(true,  0x020D0C00F401C900, 0xF501010000002800), v2_item(false, 0x0300000000050000, 0x0000000000000000), v2_item(false, 0x0306010000030000, 0x0000000000000000), v2_item(false, 0x0306000000030000, 0x0000000000000000), v2_item(false, 0x0308000000050000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {5,  {v2_item(true, 0x0006000500000000, 0x0000000000000000), v2_item(true,  0x0101010000000000, 0x0000000000000000), v2_item(true,  0x0102010000000000, 0x0000000000000000), v2_item(true,  0x020D0E00F401C900, 0xBD02010000002800), v2_item(false, 0x0300000000050000, 0x0000000000000000), v2_item(false, 0x0306010000030000, 0x0000000000000000), v2_item(false, 0x0306000000030000, 0x0000000000000000), v2_item(false, 0x0308000000050000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
@@ -642,7 +632,7 @@ const ChallengeTemplateDefinition& get_challenge_template_definition(Version ver
       {50, {v2_item(true, 0x020C8C00B80BC509, 0x7117C50900002800), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {99, {v2_item(true, 0x0206B400B80BB90B, 0x2923B90B00002800), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
   });
-  static const vector<ChallengeTemplateDefinition> v2_force_templates({
+  static const std::vector<ChallengeTemplateDefinition> v2_force_templates({
       {0,  {v2_item(true, 0x000A000000000000, 0x0000000000000000), v2_item(true,  0x0101000000000000, 0x0000000000000000), v2_item(true,  0x02000500F4010100, 0x0100010000002800), v2_item(false, 0x0300000000040000, 0x0000000000000000), v2_item(false, 0x0301000000040000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 0}}},
       {4,  {v2_item(true, 0x000A000500000000, 0x0000000000000000), v2_item(true,  0x0101000000000000, 0x0000000000000000), v2_item(true,  0x0102000000000000, 0x0000000000000000), v2_item(true,  0x02190D0020036500, 0x0100910100002800), v2_item(false, 0x0300000000060000, 0x0000000000000000), v2_item(false, 0x0301000000060000, 0x0000000000000000), v2_item(false, 0x0306010000030000, 0x0000000000000000), v2_item(false, 0x0306000000030000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 2}, {0x03, 2}, {0x0D, 2}, {0x0A, 2}}},
       {6,  {v2_item(true, 0x000B000000000000, 0x0000000000000000), v2_item(true,  0x0101000000000000, 0x0000000000000000), v2_item(true,  0x0102000000000000, 0x0000000000000000), v2_item(true,  0x02190F002003C900, 0x0100F50100002800), v2_item(false, 0x0300000000060000, 0x0000000000000000), v2_item(false, 0x0301000000060000, 0x0000000000000000), v2_item(false, 0x0306010000030000, 0x0000000000000000), v2_item(false, 0x0306000000030000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 2}, {0x03, 2}, {0x0D, 2}, {0x0A, 2}}},
@@ -661,7 +651,7 @@ const ChallengeTemplateDefinition& get_challenge_template_definition(Version ver
       {99, {v2_item(true, 0x021CB400AC0DD107, 0xC509112700002800), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000), v2_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 0}} },
   });
 
-  static const vector<ChallengeTemplateDefinition> v3_hunter_templates({
+  static const std::vector<ChallengeTemplateDefinition> v3_hunter_templates({
       {0,  {v3_item(true, 0x0001000000000000, 0x0000000000000000), v3_item(true,  0x0101000000000000, 0x0000000000000000), v3_item(true,  0x02000500F4010000, 0x0000000028000012), v3_item(false, 0x0300000000030000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {4,  {v3_item(true, 0x0001000500000000, 0x0000000000000000), v3_item(true,  0x0101010000000000, 0x0000000000000000), v3_item(true,  0x0102000000000000, 0x0000000000000000), v3_item(true,  0x02010D002003F401, 0x0000000028000012), v3_item(false, 0x0300000000060000, 0x0000000000000000), v3_item(false, 0x0306010000030000, 0x0000000000000000), v3_item(false, 0x0306000000030000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {6,  {v3_item(true, 0x0002000000000000, 0x0000000000000000), v3_item(true,  0x0101020000000000, 0x0000000000000000), v3_item(true,  0x0102010000000000, 0x0000000000000000), v3_item(true,  0x0201100020032003, 0x0000000028000012), v3_item(false, 0x0300000000060000, 0x0000000000000000), v3_item(false, 0x0306010000030000, 0x0000000000000000), v3_item(false, 0x0306000000030000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
@@ -679,7 +669,7 @@ const ChallengeTemplateDefinition& get_challenge_template_definition(Version ver
       {50, {v3_item(true, 0x02058200A00F8813, 0xD007D00728000012), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {99, {v3_item(true, 0x0205BE007017581B, 0xB80BB80B28000012), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
   });
-  static const vector<ChallengeTemplateDefinition> v3_ranger_templates({
+  static const std::vector<ChallengeTemplateDefinition> v3_ranger_templates({
       {0,  {v3_item(true, 0x0006000000000000, 0x0000000000000000), v3_item(true,  0x0101000000000000, 0x0000000000000000), v3_item(true,  0x02000500F4010000, 0x0000000028000012), v3_item(false, 0x0300000000030000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {4,  {v3_item(true, 0x0006000500000000, 0x0000000000000000), v3_item(true,  0x0101010000000000, 0x0000000000000000), v3_item(true,  0x0102000000000000, 0x0000000000000000), v3_item(true,  0x020D0C00F401C800, 0xF401000028000012), v3_item(false, 0x0300000000050000, 0x0000000000000000), v3_item(false, 0x0306010000030000, 0x0000000000000000), v3_item(false, 0x0306000000030000, 0x0000000000000000), v3_item(false, 0x0308000000050000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {5,  {v3_item(true, 0x0006000500000000, 0x0000000000000000), v3_item(true,  0x0101010000000000, 0x0000000000000000), v3_item(true,  0x0102010000000000, 0x0000000000000000), v3_item(true,  0x020D0E00F401C800, 0xBC02000028000012), v3_item(false, 0x0300000000050000, 0x0000000000000000), v3_item(false, 0x0306010000030000, 0x0000000000000000), v3_item(false, 0x0306000000030000, 0x0000000000000000), v3_item(false, 0x0308000000050000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
@@ -697,7 +687,7 @@ const ChallengeTemplateDefinition& get_challenge_template_definition(Version ver
       {50, {v3_item(true, 0x020C8C00B80BC409, 0x7017C40928000012), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
       {99, {v3_item(true, 0x0206B400B80BB80B, 0x2823B80B28000012), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {}},
   });
-  static const vector<ChallengeTemplateDefinition> v3_force_templates({
+  static const std::vector<ChallengeTemplateDefinition> v3_force_templates({
       {0,  {v3_item(true, 0x000A000000000000, 0x0000000000000000), v3_item(true,  0x0101000000000000, 0x0000000000000000), v3_item(true,  0x02000500F4010000, 0x0000000028000012), v3_item(false, 0x0300000000040000, 0x0000000000000000), v3_item(false, 0x0301000000040000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 0}}},
       {4,  {v3_item(true, 0x000A000500000000, 0x0000000000000000), v3_item(true,  0x0101000000000000, 0x0000000000000000), v3_item(true,  0x0102000000000000, 0x0000000000000000), v3_item(true,  0x02190D0020036400, 0x0000900128000012), v3_item(false, 0x0300000000060000, 0x0000000000000000), v3_item(false, 0x0301000000060000, 0x0000000000000000), v3_item(false, 0x0306010000030000, 0x0000000000000000), v3_item(false, 0x0306000000030000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 2}, {0x03, 2}, {0x0D, 2}, {0x0A, 2}}},
       {6,  {v3_item(true, 0x000B000000000000, 0x0000000000000000), v3_item(true,  0x0101000000000000, 0x0000000000000000), v3_item(true,  0x0102000000000000, 0x0000000000000000), v3_item(true,  0x02190F002003C800, 0x0000F40128000012), v3_item(false, 0x0300000000060000, 0x0000000000000000), v3_item(false, 0x0301000000060000, 0x0000000000000000), v3_item(false, 0x0306010000030000, 0x0000000000000000), v3_item(false, 0x0306000000030000, 0x0000000000000000), v3_item(false, 0x0309000000000000, 0x0000000000000000)}, {{0x00, 2}, {0x03, 2}, {0x0D, 2}, {0x0A, 2}}},
@@ -724,12 +714,12 @@ const ChallengeTemplateDefinition& get_challenge_template_definition(Version ver
   } else if ((class_flags & 0xE0) == 0x80) {
     return is_v1_or_v2(version) ? v2_force_templates.at(index) : v3_force_templates.at(index);
   } else {
-    throw runtime_error("invalid class flags on original player");
+    throw std::runtime_error("invalid class flags on original player");
   }
 }
 
 PlayerHoldState::PlayerHoldState(const PlayerHoldState_DCProtos& proto)
-    : unknown_a1(proto.unknown_a1),
+    : expiration_frames(proto.expiration_frames),
       unknown_a2(proto.unknown_a2),
       unknown_a3(0),
       trigger_radius2(proto.trigger_radius2),
@@ -738,7 +728,7 @@ PlayerHoldState::PlayerHoldState(const PlayerHoldState_DCProtos& proto)
 
 PlayerHoldState::operator PlayerHoldState_DCProtos() const {
   PlayerHoldState_DCProtos ret;
-  ret.unknown_a1 = this->unknown_a1;
+  ret.expiration_frames = this->expiration_frames;
   ret.unknown_a2 = this->unknown_a2;
   ret.trigger_radius2 = this->trigger_radius2;
   ret.x = this->x;
