@@ -295,10 +295,10 @@ void apply_mag_feed_result(
     uint16_t existing_stat = data.data1w[which] % 100;
     if ((delta > 0) || ((delta < 0) && (-delta < existing_stat))) {
       uint16_t level = data.compute_mag_level();
-      if (level > 200) {
+      if (level > 50) {
         throw std::runtime_error("mag level is too high");
       }
-      if ((level == 200) && ((99 - existing_stat) < delta)) {
+      if ((level == 50) && ((99 - existing_stat) < delta)) {
         delta = 99 - existing_stat;
       }
       data.data1w[which] += delta;
