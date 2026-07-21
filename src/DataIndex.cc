@@ -70,7 +70,8 @@ DataIndex::DataIndex::QuestF960Result::QuestF960Result(
   }
 }
 
-DataIndex::DataIndex(const std::string& config_filename) : config_filename(config_filename) {}
+DataIndex::DataIndex(const std::string& config_filename)
+    : creation_time(phosg::now()), config_filename(config_filename) {}
 
 uint32_t DataIndex::connect_address_for_client(std::shared_ptr<Client> c) const {
   {
@@ -1131,7 +1132,7 @@ void DataIndex::load_config_early() {
         for (size_t z = 0; z < 4; z++) {
           levels[z] = ep_it.second->get_int(z) - 1;
         }
-        switch (episode_for_token_name(ep_it.first)) {
+        switch (episode_for_name(ep_it.first)) {
           case Episode::EP1:
             dest[0] = levels;
             break;
